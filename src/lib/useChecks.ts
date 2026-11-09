@@ -1,21 +1,23 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { companySchedule, standardHours } from '../config/payrollConfig'
 import { useStore } from '../store'
 import { runChecks } from './checks'
 
 /** 이번 회차 급여에 대한 자동 점검 결과 */
 export function useChecks() {
-  const { employees, hours, results, lastRun, ytdGross } = useStore()
+  const { employees, time, results, lastRun, ytdGross } = useStore()
+  const [today] = useState(() => new Date())
   return useMemo(
     () =>
       runChecks({
         employees: employees.filter((e) => e.active),
-        hours,
+        time,
         results,
         previous: lastRun?.results,
         ytdGross,
         standardHours: standardHours[companySchedule.frequency],
+        today,
       }),
-    [employees, hours, results, lastRun, ytdGross],
+    [employees, time, results, lastRun, ytdGross, today],
   )
 }

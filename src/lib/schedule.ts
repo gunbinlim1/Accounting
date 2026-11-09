@@ -53,19 +53,23 @@ export interface Deadline {
   en: string
 }
 
-/** 연방 고용세 주요 신고 기한 (주말·공휴일이면 다음 영업일) */
-export function upcomingDeadlines(from: Date, count = 4): Deadline[] {
+/** 연방·텍사스 고용세 주요 신고 기한 (주말·공휴일이면 다음 영업일) */
+export function upcomingDeadlines(from: Date, count = 5): Deadline[] {
   const today = startOfDay(from)
   const list: Deadline[] = []
   for (const y of [today.getFullYear(), today.getFullYear() + 1]) {
     list.push(
       { date: new Date(y, 0, 31), form: 'W-2 / W-3', ko: '직원 W-2 발송 및 SSA 제출', en: 'Furnish W-2s & file with SSA' },
       { date: new Date(y, 0, 31), form: '940', ko: '연방 실업세(FUTA) 연간 신고', en: 'Annual FUTA return' },
-      { date: new Date(y, 0, 31), form: '941 Q4', ko: '4분기 고용세 신고', en: 'Q4 payroll tax return' },
-      { date: new Date(y, 3, 30), form: '941 Q1', ko: '1분기 고용세 신고', en: 'Q1 payroll tax return' },
-      { date: new Date(y, 6, 31), form: '941 Q2', ko: '2분기 고용세 신고', en: 'Q2 payroll tax return' },
-      { date: new Date(y, 9, 31), form: '941 Q3', ko: '3분기 고용세 신고', en: 'Q3 payroll tax return' },
+      { date: new Date(y, 2, 31), form: '8027', ko: '팁 소득 연간 보고 (직원 10명 초과 레스토랑, 전자신고)', en: 'Annual tip income return (large food & beverage, e-file)' },
     )
+    const quarters: [number, number, string][] = [[0, 31, 'Q4'], [3, 30, 'Q1'], [6, 31, 'Q2'], [9, 31, 'Q3']]
+    for (const [m, d, q] of quarters) {
+      list.push(
+        { date: new Date(y, m, d), form: `941 ${q}`, ko: `${q} 연방 고용세 신고`, en: `${q} federal payroll tax return` },
+        { date: new Date(y, m, d), form: `TWC ${q}`, ko: `${q} 텍사스 실업세 보고·납부 (C-3)`, en: `${q} Texas unemployment tax report (C-3)` },
+      )
+    }
   }
   return list
     .filter((d) => d.date >= today)

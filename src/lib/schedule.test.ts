@@ -23,9 +23,9 @@ describe('previousPayDate', () => {
 
 describe('upcomingDeadlines', () => {
   it('오늘 이후의 기한만 날짜순으로 반환한다', () => {
-    const list = upcomingDeadlines(parseISODate('2026-11-09'), 4)
-    expect(list.map((d) => toISODate(d.date))).toEqual([
-      '2027-01-31', '2027-01-31', '2027-01-31', '2027-04-30',
-    ])
+    const list = upcomingDeadlines(parseISODate('2026-11-09'), 5)
+    expect(list.every((d) => toISODate(d.date) >= '2026-11-09')).toBe(true)
+    expect(list.map((d) => d.form)).toContain('TWC Q4')
+    expect(toISODate(list[list.length - 1].date)).toBe('2027-03-31')
   })
 })

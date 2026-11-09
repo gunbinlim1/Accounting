@@ -34,13 +34,13 @@ export default function Layout() {
   const commands = useMemo<Command[]>(
     () => [
       ...nav.map((n) => ({ id: `go-${n.to}`, label: n.label, hint: t('이동', 'Go to'), icon: n.icon, run: () => navigate(n.to) })),
-      { id: 'add', label: t('직원 추가', 'Add employee'), icon: <UserPlus size={18} />, keywords: 'new hire', run: () => navigate('/employees?new=1') },
+      { id: 'add', label: t('직원 등록 (W-4·I-9)', 'Add employee (W-4, I-9)'), icon: <UserPlus size={18} />, keywords: 'new hire', run: () => navigate('/employees/new') },
       ...employees.map((e) => ({
         id: `emp-${e.id}`,
         label: e.name,
         hint: t('시뮬레이션', 'Simulate'),
         icon: <SlidersHorizontal size={18} />,
-        keywords: `${e.department} ${e.id}`,
+        keywords: `${e.role} ${e.id}`,
         run: () => navigate(`/simulator?e=${e.id}`),
       })),
       { id: 'lang', label: lang === 'ko' ? 'Switch to English' : '한국어로 전환', icon: <Languages size={18} />, keywords: 'language 언어', run: toggleLang },

@@ -1,10 +1,10 @@
-import { ArrowRight, Building2, CalendarDays, CircleCheck, Landmark, Wallet } from 'lucide-react'
+import { ArrowRight, CalendarDays, CircleCheck, HandCoins, Landmark, PiggyBank, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { segmentsOf } from '../lib/segments'
 import BreakdownBar from '../components/BreakdownBar'
 import CheckList from '../components/CheckList'
-import { companySchedule } from '../config/payrollConfig'
+import { companySchedule, periodsPerYear } from '../config/payrollConfig'
 import { formatCurrency, formatCurrencyWhole, formatDate } from '../lib/format'
 import { sumResults } from '../lib/payroll'
 import { daysBetween, parseISODate, previousPayDate, upcomingDeadlines } from '../lib/schedule'
@@ -24,7 +24,7 @@ export default function Dashboard() {
   const progress = Math.min(1, Math.max(0, (periodLen - daysLeft) / periodLen))
 
   const totals = sumResults(approvedForPayDate?.results ?? results)
-  const centsHome = totals.gross > 0 ? Math.round((totals.net / totals.gross) * 100) : 0
+  const centsHome = totals.gross > 0 ? Math.round(((totals.net + totals.cashTips) / totals.gross) * 100) : 0
   const hour = today.getHours()
   const greeting =
     hour < 12 ? t('좋은 아침이에요', 'Good morning') : hour < 18 ? t('좋은 오후예요', 'Good afternoon') : t('좋은 저녁이에요', 'Good evening')
@@ -50,7 +50,7 @@ export default function Dashboard() {
           </div>
           <p className="muted small">
             {t('급여 기간', 'Pay period')} {formatDate(periodStart, locale, { month: 'short', day: 'numeric' })} –{' '}
-            {formatDate(pay, locale, { month: 'short', day: 'numeric' })} · {t('격주 지급', 'Biweekly')}
+            {formatDate(pay, locale, { month: 'short', day: 'numeric' })} · {t('격주 지급 · 텍사스', 'Biweekly · Texas')}
           </p>
         </div>
         <div className="hero-cta">
@@ -73,27 +73,32 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="tiles">
+      <section className="tiles four">
         <div className="tile card">
           <Wallet size={20} className="tile-icon" aria-hidden />
-          <span className="tile-label">{t('직원 실수령 합계', 'Total take-home')}</span>
+          <span className="tile-label">{t('급여 입금 합계', 'Paychecks')}</span>
           <span className="tile-value">{formatCurrencyWhole(totals.net)}</span>
-          <span className="muted small">{t(`재직 ${activeCount}명`, `${activeCount} active people`)}</span>
+          <span className="muted small">{t(`재직 ${activeCount}명 · 카드 팁 포함`, `${activeCount} active · incl. card tips`)}</span>
+        </div>
+        <div className="tile card">
+          <HandCoins size={20} className="tile-icon" aria-hidden />
+          <span className="tile-label">{t('이번 회차 팁', 'Tips this run')}</span>
+          <span className="tile-value">{formatCurrencyWhole(totals.cashTips + totals.cardTips)}</span>
+          <span className="muted small">
+            {t('현금', 'Cash')} {formatCurrencyWhole(totals.cashTips)} · {t('카드', 'Card')} {formatCurrencyWhole(totals.cardTips)}
+          </span>
         </div>
         <div className="tile card">
           <Landmark size={20} className="tile-icon" aria-hidden />
           <span className="tile-label">{t('IRS 예치 예정액', 'Due to IRS')}</span>
           <span className="tile-value">{formatCurrencyWhole(totals.federalDeposit)}</span>
-          <span className="muted small">{t('연방 원천징수 + FICA(직원·회사)', 'Federal withholding + FICA (both halves)')}</span>
+          <span className="muted small">{t(`+ TWC ${formatCurrencyWhole(totals.suta)} · FUTA ${formatCurrencyWhole(totals.futa)}`, `+ TWC ${formatCurrencyWhole(totals.suta)} · FUTA ${formatCurrencyWhole(totals.futa)}`)}</span>
         </div>
-        <div className="tile card">
-          <Building2 size={20} className="tile-icon" aria-hidden />
-          <span className="tile-label">{t('회사 총 인건비', 'Total employer cost')}</span>
-          <span className="tile-value">{formatCurrencyWhole(totals.employerCost)}</span>
-          <span className="muted small">
-            {t('총급여', 'Gross')} {formatCurrencyWhole(totals.gross)} + {t('회사 부담 세금', 'employer taxes')}{' '}
-            {formatCurrencyWhole(totals.employerTaxes)}
-          </span>
+        <div className="tile card highlight">
+          <PiggyBank size={20} className="tile-icon" aria-hidden />
+          <span className="tile-label">{t('45B 팁 크레딧 (연 환산)', '45B tip credit (annualized)')}</span>
+          <span className="tile-value">{formatCurrencyWhole(totals.tipCredit45B * periodsPerYear[companySchedule.frequency])}</span>
+          <span className="muted small">{t('팁에 낸 회사 FICA를 세액공제로 돌려받기 (Form 8846)', 'Get employer FICA on tips back as a tax credit (Form 8846)')}</span>
         </div>
       </section>
 
@@ -101,17 +106,17 @@ export default function Dashboard() {
         <section className="card">
           <h2>{t('급여 $1은 어디로 갈까요?', 'Where does each $1 go?')}</h2>
           <p className="lead">
-            {t('이번 회차 급여 $1 중 ', 'Of every $1 in gross pay, ')}
+            {t('팁 포함 총급여 $1 중 ', 'Of every $1 earned, tips included, ')}
             <strong className="accent">{centsHome}¢</strong>
-            {t('가 직원 통장으로 들어갑니다.', ' lands in employees’ bank accounts.')}
+            {t('가 직원 손에 남습니다 (입금 + 현금 팁).', ' stays with employees (paycheck + cash tips).')}
           </p>
           <BreakdownBar
             size="lg"
             segments={segmentsOf({
               netPay: totals.net,
+              cashTips: totals.cashTips,
               pretaxDeductions: totals.pretax,
               federalWithholding: totals.federal,
-              stateWithholding: totals.state,
               socialSecurity: totals.socialSecurity,
               medicare: totals.medicare,
             })}
@@ -176,8 +181,8 @@ export default function Dashboard() {
 
       <p className="disclaimer">
         {t(
-          '데모 버전: 연방·주 원천징수는 임시 정률이며, 데이터는 이 브라우저에만 저장됩니다. 실제 직원 정보를 입력하지 마세요.',
-          'Demo: federal/state withholding uses flat placeholder rates and data stays in this browser only. Do not enter real employee data.',
+          '데모 버전: 2026 IRS 퍼센트 방식·텍사스 기준으로 계산하지만 실제 신고 전 세무 전문가 검토가 필요합니다. 데이터는 이 브라우저에만 저장되니 실제 직원 정보를 입력하지 마세요.',
+          'Demo: calculated with the 2026 IRS percentage method for Texas, but have a tax professional review before filing. Data stays in this browser only — do not enter real employee data.',
         )}
       </p>
     </div>

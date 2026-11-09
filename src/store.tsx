@@ -1,56 +1,60 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { companySchedule, standardHours } from './config/payrollConfig'
+import { companySchedule } from './config/payrollConfig'
+import { defaultTimeFor } from './config/restaurantRoles'
 import { sampleEmployees } from './data/sampleEmployees'
 import { calculatePayroll } from './lib/payroll'
-import { ytdGrossFor } from './lib/ytd'
 import { nextPayDate, parseISODate, previousPayDate, toISODate } from './lib/schedule'
-import type { Employee, Hours, PayRun, PayrollResult } from './types'
+import { ytdGrossFor } from './lib/ytd'
+import type { Employee, PayRun, PayrollResult, TimeEntry } from './types'
 
-const STORAGE_KEY = 'payroll-demo-v2'
+const STORAGE_KEY = 'payroll-restaurant-tx-v1'
 
 interface State {
   employees: Employee[]
-  hours: Record<string, Hours>
+  time: Record<string, TimeEntry>
   runs: PayRun[]
 }
 
-const defaultHours = (e: Employee): Hours => ({
-  regular: e.payType === 'hourly' ? standardHours[companySchedule.frequency] : 0,
-  overtime: 0,
-})
+const emptyTime: TimeEntry = { regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }
+const defaultTime = (e: Employee): TimeEntry => defaultTimeFor(e.role)
 
-function computeResults(
-  employees: Employee[],
-  hours: Record<string, Hours>,
-  ytd: Record<string, number>,
-): PayrollResult[] {
+function computeResults(employees: Employee[], time: Record<string, TimeEntry>, ytd: Record<string, number>): PayrollResult[] {
   return employees
     .filter((e) => e.active)
-    .map((employee) =>
-      calculatePayroll({
+    .map((employee) => {
+      const g = ytd[employee.id] ?? 0
+      return calculatePayroll({
         employee,
         payFrequency: companySchedule.frequency,
-        regularHours: hours[employee.id]?.regular,
-        overtimeHours: hours[employee.id]?.overtime,
-        ytdGross: ytd[employee.id],
-      }),
-    )
+        time: time[employee.id] ?? emptyTime,
+        ytd: { gross: g, futaWages: g, sutaWages: g },
+      })
+    })
 }
 
 function initialState(): State {
-  const hours = Object.fromEntries(sampleEmployees.map((e) => [e.id, defaultHours(e)]))
-  const anchor = parseISODate(companySchedule.anchorDate)
-  const upcoming = nextPayDate(companySchedule.frequency, anchor, new Date())
+  const today = new Date()
+  const employees = sampleEmployees(today)
+  const time = Object.fromEntries(employees.map((e) => [e.id, defaultTime(e)]))
+  const upcoming = nextPayDate(companySchedule.frequency, parseISODate(companySchedule.anchorDate), today)
   const last = previousPayDate(companySchedule.frequency, upcoming)
-  // 직전 회차는 Riley Han이 초과근무 없이 근무했다고 가정한 샘플 기록
-  const seedHours = { ...hours }
-  const results = computeResults(sampleEmployees, seedHours, {})
-  const runs: PayRun[] = [
-    { id: `run-${toISODate(last)}`, payDate: toISODate(last), approvedAt: last.toISOString(), hours: seedHours, results },
-  ]
-  // 이번 회차에는 눈에 띄는 변화를 넣어 자동 점검을 체험할 수 있게 함
-  hours['EMP-004'] = { regular: 80, overtime: 12 }
-  return { employees: sampleEmployees, hours, runs }
+
+  // 직전 회차 기록 (신입 Jenny 제외)
+  const lastEmployees = employees.filter((e) => e.id !== 'EMP-005')
+  const lastRun: PayRun = {
+    id: `run-${toISODate(last)}`,
+    payDate: toISODate(last),
+    approvedAt: last.toISOString(),
+    time: { ...time },
+    results: computeResults(lastEmployees, time, {}),
+  }
+
+  // 이번 회차: 바쁜 2주 + 신입의 첫 급여 (팁이 적어 최저임금 보전 발생)
+  time['EMP-001'] = { regular: 72, overtime: 6, cashTips: 380, cardTips: 1040 }
+  time['EMP-004'] = { regular: 80, overtime: 9, cashTips: 0, cardTips: 0 }
+  time['EMP-005'] = { regular: 30, overtime: 0, cashTips: 15, cardTips: 40 }
+
+  return { employees, time, runs: [lastRun] }
 }
 
 function loadState(): State {
@@ -58,7 +62,7 @@ function loadState(): State {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as State
-      if (Array.isArray(parsed.employees) && parsed.hours && Array.isArray(parsed.runs)) return parsed
+      if (Array.isArray(parsed.employees) && parsed.time && Array.isArray(parsed.runs)) return parsed
     }
   } catch {
     /* fall through to demo data */
@@ -75,7 +79,7 @@ interface Store extends State {
   approvedForPayDate?: PayRun
   upsertEmployee: (e: Employee) => void
   toggleActive: (id: string) => void
-  setHours: (id: string, patch: Partial<Hours>) => void
+  setTime: (id: string, patch: Partial<TimeEntry>) => void
   approveRun: () => PayRun
   resetDemo: () => void
 }
@@ -98,10 +102,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const ytdGross = useMemo(() => ytdGrossFor(state.runs, payDate), [state.runs, payDate])
-  const results = useMemo(
-    () => computeResults(state.employees, state.hours, ytdGross),
-    [state.employees, state.hours, ytdGross],
-  )
+  const results = useMemo(() => computeResults(state.employees, state.time, ytdGross), [state.employees, state.time, ytdGross])
 
   const sortedRuns = useMemo(() => [...state.runs].sort((a, b) => b.payDate.localeCompare(a.payDate)), [state.runs])
   const approvedForPayDate = sortedRuns.find((r) => r.payDate === payDate)
@@ -113,7 +114,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return {
         ...s,
         employees: exists ? s.employees.map((x) => (x.id === e.id ? e : x)) : [...s.employees, e],
-        hours: s.hours[e.id] ? s.hours : { ...s.hours, [e.id]: defaultHours(e) },
+        time: s.time[e.id] ? s.time : { ...s.time, [e.id]: defaultTime(e) },
       }
     })
   }, [])
@@ -122,21 +123,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, employees: s.employees.map((e) => (e.id === id ? { ...e, active: !e.active } : e)) }))
   }, [])
 
-  const setHours = useCallback((id: string, patch: Partial<Hours>) => {
-    setState((s) => ({ ...s, hours: { ...s.hours, [id]: { ...(s.hours[id] ?? { regular: 0, overtime: 0 }), ...patch } } }))
+  const setTime = useCallback((id: string, patch: Partial<TimeEntry>) => {
+    setState((s) => ({ ...s, time: { ...s.time, [id]: { ...(s.time[id] ?? emptyTime), ...patch } } }))
   }, [])
 
   const approveRun = useCallback((): PayRun => {
-    const run: PayRun = {
-      id: `run-${payDate}`,
-      payDate,
-      approvedAt: new Date().toISOString(),
-      hours: state.hours,
-      results,
-    }
+    const run: PayRun = { id: `run-${payDate}`, payDate, approvedAt: new Date().toISOString(), time: state.time, results }
     setState((s) => ({ ...s, runs: [...s.runs.filter((r) => r.payDate !== payDate), run] }))
     return run
-  }, [payDate, results, state.hours])
+  }, [payDate, results, state.time])
 
   const resetDemo = useCallback(() => setState(initialState()), [])
 
@@ -150,7 +145,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     approvedForPayDate,
     upsertEmployee,
     toggleActive,
-    setHours,
+    setTime,
     approveRun,
     resetDemo,
   }

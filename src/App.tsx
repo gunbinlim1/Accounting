@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
+import EmployeeForm from './pages/EmployeeForm'
 import Employees from './pages/Employees'
 import NotFound from './pages/NotFound'
 import PayrollRun from './pages/PayrollRun'
@@ -19,6 +20,8 @@ export default function App() {
               <Route path="run" element={<PayrollRun />} />
               <Route path="payroll" element={<Navigate to="/run" replace />} />
               <Route path="employees" element={<Employees />} />
+              <Route path="employees/new" element={<EmployeeForm />} />
+              <Route path="employees/:id" element={<EmployeeForm key="edit" />} />
               <Route path="simulator" element={<Simulator />} />
               <Route path="*" element={<NotFound />} />
             </Route>

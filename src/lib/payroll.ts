@@ -1,99 +1,169 @@
-import { payrollConfig, periodsPerYear } from '../config/payrollConfig'
+import { payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import type { PayrollInput, PayrollResult } from '../types'
+import { federalIncomeTaxWithholding } from './federalWithholding'
+import { roundCents } from './money'
 
-/** 센트 단위로 반올림 (부동소수점 오차 방지) */
-export const roundCents = (value: number): number =>
-  Math.round((value + Number.EPSILON) * 100) / 100
+export { roundCents }
 
-export function calculateGrossPay(input: PayrollInput): number {
-  const { employee, payFrequency, regularHours = 0, overtimeHours = 0 } = input
+const pos = (n: number | undefined) => Math.max(0, n ?? 0)
 
-  if (employee.payType === 'salary') {
-    return roundCents(employee.rate / periodsPerYear[payFrequency])
+/** 팁 직원의 시간당 팁 크레딧 (최저임금 − 현금 시급, 최대 $5.12) */
+export const tipCreditRate = (cashRate: number): number =>
+  Math.min(cfg.maxTipCredit, Math.max(0, cfg.minimumWage - cashRate))
+
+/** 팁 직원 초과근무 현금 시급 = 1.5 × (현금시급 + 팁크레딧) − 팁크레딧 */
+export const tippedOvertimeRate = (cashRate: number): number => {
+  const credit = tipCreditRate(cashRate)
+  return (cashRate + credit) * cfg.overtimeMultiplier - credit
+}
+
+/** 상한까지 남은 과세 대상 금액 */
+const underBase = (amount: number, ytd: number, base: number) => Math.min(amount, Math.max(0, base - ytd))
+
+export function calculatePayroll({ employee: e, payFrequency, time = {}, ytd = {} }: PayrollInput): PayrollResult {
+  const regular = pos(time.regular)
+  const overtime = pos(time.overtime)
+  const cashTips = roundCents(pos(time.cashTips))
+  const cardTips = roundCents(pos(time.cardTips))
+  const tips = cashTips + cardTips
+  const ytdGross = pos(ytd.gross)
+
+  // ── 지급 항목
+  let regularPay = 0
+  let overtimePay = 0
+  let tipMakeUp = 0
+  let qualifiedOvertimePremium = 0
+  const hours = e.payType === 'salary' ? 0 : regular + overtime
+
+  if (e.payType === 'salary') {
+    regularPay = e.rate / periodsPerYear[payFrequency]
+  } else {
+    const credit = e.payType === 'tipped' ? tipCreditRate(e.rate) : 0
+    const regularRate = e.rate + credit
+    regularPay = e.rate * regular
+    overtimePay = (regularRate * cfg.overtimeMultiplier - credit) * overtime
+    qualifiedOvertimePremium = (regularRate * (cfg.overtimeMultiplier - 1)) * overtime
+    if (e.payType === 'tipped') {
+      const required = cfg.minimumWage * regular + cfg.minimumWage * cfg.overtimeMultiplier * overtime
+      tipMakeUp = Math.max(0, required - (regularPay + overtimePay + tips))
+    }
   }
+  regularPay = roundCents(regularPay)
+  overtimePay = roundCents(overtimePay)
+  tipMakeUp = roundCents(tipMakeUp)
 
-  const regular = employee.rate * regularHours
-  const overtime = employee.rate * payrollConfig.overtimeMultiplier * overtimeHours
-  return roundCents(regular + overtime)
-}
+  const grossPay = roundCents(regularPay + overtimePay + tipMakeUp + tips)
+  const paycheckWages = grossPay - cashTips
 
-export function calculateSocialSecurity(grossPay: number, ytdGross = 0): number {
-  const remainingBase = Math.max(0, payrollConfig.socialSecurityWageBase - ytdGross)
-  const subjectWages = Math.min(grossPay, remainingBase)
-  return roundCents(subjectWages * payrollConfig.socialSecurityRate)
-}
+  // ── 직원 공제
+  const pretaxDeductions = roundCents(paycheckWages * e.pretaxDeferralRate)
+  const federalTaxableWages = roundCents(grossPay - pretaxDeductions)
+  const fitDue = federalIncomeTaxWithholding(federalTaxableWages, payFrequency, e.w4)
 
-export function calculatePayroll(input: PayrollInput): PayrollResult {
-  const grossPay = calculateGrossPay(input)
-  const pretaxDeductions = roundCents(grossPay * input.employee.pretaxDeferralRate)
-  const taxableWages = roundCents(grossPay - pretaxDeductions)
+  const ssDue = roundCents(underBase(grossPay, ytdGross, cfg.socialSecurityWageBase) * cfg.socialSecurityRate)
+  const addlMedicareWages =
+    Math.max(0, ytdGross + grossPay - cfg.additionalMedicareThreshold) - Math.max(0, ytdGross - cfg.additionalMedicareThreshold)
+  const medicareDue = roundCents(grossPay * cfg.medicareRate + addlMedicareWages * cfg.additionalMedicareRate)
 
-  const federalWithholding = roundCents(taxableWages * payrollConfig.federalWithholdingRate)
-  const stateWithholding = roundCents(taxableWages * payrollConfig.stateWithholdingRate)
-  // FICA는 401(k) 세전 공제 전 총급여 기준이며, 회사도 같은 금액을 부담
-  const socialSecurity = calculateSocialSecurity(grossPay, input.ytdGross)
-  const medicare = roundCents(grossPay * payrollConfig.medicareRate)
+  // 현금 팁은 이미 직원 손에 있으므로, 급여에서 뗄 수 있는 돈이 부족할 수 있음.
+  // FICA를 먼저 원천징수하고, 남는 금액에서 연방 소득세를 원천징수.
+  const available = Math.max(0, paycheckWages - pretaxDeductions)
+  const ficaDue = ssDue + medicareDue
+  const ficaWithheld = roundCents(Math.min(ficaDue, available))
+  const socialSecurity = ficaDue > 0 ? roundCents((ssDue * ficaWithheld) / ficaDue) : 0
+  const medicare = roundCents(ficaWithheld - socialSecurity)
+  const uncollectedFica = roundCents(ficaDue - ficaWithheld)
+  const federalWithholding = roundCents(Math.min(fitDue, available - ficaWithheld))
 
-  const totalDeductions = roundCents(
-    pretaxDeductions + federalWithholding + stateWithholding + socialSecurity + medicare,
-  )
+  const totalDeductions = roundCents(pretaxDeductions + federalWithholding + socialSecurity + medicare)
+  const netPay = roundCents(paycheckWages - totalDeductions)
+
+  // ── 고용주 부담 (텍사스: 주 소득세 없음, TWC 실업세만)
+  const employerSocialSecurity = ssDue
+  const employerMedicare = roundCents(grossPay * cfg.medicareRate)
+  const futa = roundCents(underBase(grossPay, pos(ytd.futaWages), cfg.futaWageBase) * cfg.futaRate)
+  const suta = roundCents(underBase(grossPay, pos(ytd.sutaWages), cfg.sutaWageBase) * cfg.sutaRate)
+  const employerTaxes = roundCents(employerSocialSecurity + employerMedicare + futa + suta)
+  const employerCost = roundCents(regularPay + overtimePay + tipMakeUp + employerTaxes)
+
+  // Section 45B: 시간당 $5.15를 채우는 데 쓰인 팁을 제외한 팁에 대한 고용주 FICA
+  const usedForMinimum = Math.max(0, cfg.section45BWage * hours - (regularPay + overtimePay + tipMakeUp))
+  const creditableTips = Math.max(0, tips - usedForMinimum)
+  const tipCredit45B = roundCents(creditableTips * (cfg.socialSecurityRate + cfg.medicareRate))
 
   return {
-    employeeId: input.employee.id,
+    employeeId: e.id,
+    hours,
+    regularPay,
+    overtimePay,
+    tipMakeUp,
+    cashTips,
+    cardTips,
     grossPay,
     pretaxDeductions,
-    taxableWages,
+    federalTaxableWages,
     federalWithholding,
-    stateWithholding,
     socialSecurity,
     medicare,
+    uncollectedFica,
     totalDeductions,
-    netPay: roundCents(grossPay - totalDeductions),
-    employerSocialSecurity: socialSecurity,
-    employerMedicare: medicare,
-    employerCost: roundCents(grossPay + socialSecurity + medicare),
+    netPay,
+    employerSocialSecurity,
+    employerMedicare,
+    futa,
+    suta,
+    employerTaxes,
+    employerCost,
+    tipCredit45B,
+    qualifiedOvertimePremium: roundCents(qualifiedOvertimePremium),
   }
 }
 
 export interface PayrollTotals {
   gross: number
+  /** 임금 (팁 제외) */
+  wages: number
   net: number
+  cashTips: number
+  cardTips: number
   pretax: number
   federal: number
-  state: number
   socialSecurity: number
   medicare: number
+  uncollectedFica: number
+  employerFica: number
+  futa: number
+  suta: number
   employerTaxes: number
   employerCost: number
-  /** IRS에 예치할 금액: 연방 원천징수 + 직원·회사 FICA */
+  tipCredit45B: number
+  /** IRS 예치: 연방 원천징수 + 직원·회사 FICA */
   federalDeposit: number
 }
 
 export function sumResults(results: PayrollResult[]): PayrollTotals {
-  const t = results.reduce(
-    (acc, r) => ({
-      gross: acc.gross + r.grossPay,
-      net: acc.net + r.netPay,
-      pretax: acc.pretax + r.pretaxDeductions,
-      federal: acc.federal + r.federalWithholding,
-      state: acc.state + r.stateWithholding,
-      socialSecurity: acc.socialSecurity + r.socialSecurity,
-      medicare: acc.medicare + r.medicare,
-      employerTaxes: acc.employerTaxes + r.employerSocialSecurity + r.employerMedicare,
-      employerCost: acc.employerCost + r.employerCost,
-    }),
-    {
-      gross: 0, net: 0, pretax: 0, federal: 0, state: 0,
-      socialSecurity: 0, medicare: 0, employerTaxes: 0, employerCost: 0,
-    },
-  )
-  const rounded = Object.fromEntries(
-    Object.entries(t).map(([k, v]) => [k, roundCents(v)]),
-  ) as Omit<PayrollTotals, 'federalDeposit'>
+  const s = (f: (r: PayrollResult) => number) => roundCents(results.reduce((a, r) => a + f(r), 0))
+  const federal = s((r) => r.federalWithholding)
+  const socialSecurity = s((r) => r.socialSecurity)
+  const medicare = s((r) => r.medicare)
+  const employerFica = s((r) => r.employerSocialSecurity + r.employerMedicare)
   return {
-    ...rounded,
-    federalDeposit: roundCents(
-      rounded.federal + rounded.socialSecurity + rounded.medicare + rounded.employerTaxes,
-    ),
+    gross: s((r) => r.grossPay),
+    wages: s((r) => r.regularPay + r.overtimePay + r.tipMakeUp),
+    net: s((r) => r.netPay),
+    cashTips: s((r) => r.cashTips),
+    cardTips: s((r) => r.cardTips),
+    pretax: s((r) => r.pretaxDeductions),
+    federal,
+    socialSecurity,
+    medicare,
+    uncollectedFica: s((r) => r.uncollectedFica),
+    employerFica,
+    futa: s((r) => r.futa),
+    suta: s((r) => r.suta),
+    employerTaxes: s((r) => r.employerTaxes),
+    employerCost: s((r) => r.employerCost),
+    tipCredit45B: s((r) => r.tipCredit45B),
+    federalDeposit: roundCents(federal + socialSecurity + medicare + employerFica),
   }
 }
