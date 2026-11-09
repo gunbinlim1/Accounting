@@ -126,7 +126,7 @@ export default function Dashboard() {
         <section className="card">
           <div className="card-head">
             <h2>{t('자동 점검', 'Smart checks')}</h2>
-            <Link to="/run?step=2" className="link">
+            <Link to="/run" className="link">
               {t('전체 보기', 'See all')}
             </Link>
           </div>

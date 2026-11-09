@@ -542,7 +542,7 @@ export default function EmployeeForm() {
           {step === 4 && (
             <>
               <h2>{t('입력 내용 확인', 'Review')}</h2>
-              <dl className="review">
+              <dl className="review-list">
                 <div><dt>{t('이름', 'Name')}</dt><dd>{d.name}</dd></div>
                 <div><dt>{t('직무', 'Role')}</dt><dd>{roleLabel(d.role, t)} · {payLabel({ payType: d.payType, rate: num(d.rate) }, t)}</dd></div>
                 <div><dt>{t('입사일', 'Hire date')}</dt><dd>{d.hireDate}</dd></div>
