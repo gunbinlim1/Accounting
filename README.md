@@ -13,6 +13,16 @@ npm run dev
 
 브라우저에서 http://localhost:5173 을 엽니다.
 
+## 배포 (GitHub Pages)
+
+`main`에 푸시하면 `.github/workflows/deploy.yml`이 자동으로 빌드·배포합니다.
+주소: https://gunbinlim1.github.io/Accounting/
+
+처음 한 번은 저장소 **Settings → Pages → Build and deployment → Source**를
+**GitHub Actions**로 설정해야 합니다.
+
+> ⚠️ 공개 사이트입니다. 실제 직원 정보는 넣지 마세요.
+
 ## 스크립트
 
 | 명령 | 설명 |
