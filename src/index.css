@@ -805,6 +805,18 @@ kbd {
   .action-total strong { font-size: 1.05rem; }
 }
 
+
+/* 급여 기준(시급·연봉) 열 */
+.rate-cell { min-width: 8.5rem; }
+.rate-main { display: block; font-size: 1.15rem; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text); line-height: 1.25; }
+.rate-main small { font-size: 0.78rem; font-weight: 600; color: var(--muted); margin-left: 0.15rem; letter-spacing: 0; }
+.rate-sub { display: block; font-size: 0.76rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .run-table .rate-cell { grid-column: 1 / -1; flex-direction: row !important; align-items: baseline !important; justify-content: space-between; gap: 0.5rem; padding: 0.15rem 0 0.25rem; border-bottom: 1px dashed var(--border); margin-bottom: 0.15rem; }
+  .run-table .rate-cell::before { display: none; }
+  .run-table .rate-cell .rate-main { font-size: 1.25rem; }
+}
+
 /* ───────── Print: pay stubs only ───────── */
 @media print {
   .sidebar, .mobile-top, .bottom-nav, .success, .action-bar { display: none !important; }

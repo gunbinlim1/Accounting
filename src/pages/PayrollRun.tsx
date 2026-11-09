@@ -5,12 +5,12 @@ import { Fragment, useMemo, useState, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import CheckList from '../components/CheckList'
 import PayStub from '../components/PayStub'
-import { companySchedule, payrollConfig as cfg } from '../config/payrollConfig'
+import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import { defaultTimeFor, receivesTips } from '../config/restaurantRoles'
 import type { Check as CheckItem } from '../lib/checks'
 import { formatCurrency, formatDate, initials } from '../lib/format'
 import { roleLabel } from '../lib/labels'
-import { sumResults } from '../lib/payroll'
+import { sumResults, tippedOvertimeRate } from '../lib/payroll'
 import { daysBetween, parseISODate, previousPayDate } from '../lib/schedule'
 import { useChecks } from '../lib/useChecks'
 import { usePrefs } from '../prefs'
@@ -223,6 +223,7 @@ export default function PayrollRun() {
               <thead>
                 <tr>
                   <th>{t('직원', 'Employee')}</th>
+                  <th className="num">{t('급여 기준', 'Pay rate')}</th>
                   <th className="num">{t('정규 시간', 'Regular hrs')}</th>
                   <th className="num">{t('OT 시간', 'OT hrs')}</th>
                   <th className="num">{t('현금 팁', 'Cash tips')}</th>
@@ -253,10 +254,23 @@ export default function PayrollRun() {
                                 {worst && worst !== 'info' && <span className={`flag ${worst}`} title={lang === 'ko' ? issues[0].ko : issues[0].en}>{sevIcon[worst]}</span>}
                               </strong>
                               <span className="muted small">
-                                {roleLabel(e.role, t)} · {salary ? t('연봉', 'Salary') : `${formatCurrency(e.rate)}/h`}
+                                {roleLabel(e.role, t)}
                               </span>
                             </div>
                           </div>
+                        </td>
+                        <td className="num rate-cell" data-label={t('급여 기준', 'Pay rate')}>
+                          <span className="rate-main">
+                            {salary ? formatCurrency(e.rate).replace(/\.00$/, '') : formatCurrency(e.rate)}
+                            <small>{salary ? t('/년', '/yr') : '/h'}</small>
+                          </span>
+                          <span className="rate-sub">
+                            {salary
+                              ? t(`회당 ${formatCurrency(e.rate / periodsPerYear[companySchedule.frequency])}`, `${formatCurrency(e.rate / periodsPerYear[companySchedule.frequency])} per check`)
+                              : e.payType === 'tipped'
+                                ? t(`+ 팁 · OT ${formatCurrency(tippedOvertimeRate(e.rate))}`, `+ tips · OT ${formatCurrency(tippedOvertimeRate(e.rate))}`)
+                                : `OT ${formatCurrency(e.rate * cfg.overtimeMultiplier)}`}
+                          </span>
                         </td>
                         <td className="num" data-label={t('정규 시간', 'Regular hrs')}>
                           <CellInput row={ri} col={0} disabled={salary} label={`${e.name} ${t('정규 시간', 'regular hours')}`} value={h.regular} onChange={(v) => setTime(e.id, { regular: v })} />
@@ -282,7 +296,7 @@ export default function PayrollRun() {
                       </tr>
                       {isOpen && (
                         <tr className="detail-row">
-                          <td colSpan={7}>
+                          <td colSpan={8}>
                             <div className="row-detail">
                               <div className="row-detail-facts">
                                 {r.hours > 0 && (
@@ -313,6 +327,7 @@ export default function PayrollRun() {
               <tfoot>
                 <tr>
                   <td>{t(`합계 · ${active.length}명`, `Total · ${active.length} people`)}</td>
+                  <td />
                   <td className="num">{active.reduce((a, e) => a + (time[e.id]?.regular ?? 0) * Number(e.payType !== 'salary'), 0)}</td>
                   <td className="num">{active.reduce((a, e) => a + (time[e.id]?.overtime ?? 0) * Number(e.payType !== 'salary'), 0)}</td>
                   <td className="num">{formatCurrency(totals.cashTips)}</td>
