@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Employee } from '../types'
-import { calculateGrossPay, calculatePayroll, calculateSocialSecurity } from './payroll'
+import { calculateGrossPay, calculatePayroll, calculateSocialSecurity, sumResults } from './payroll'
 
 const salaried: Employee = {
   id: 'e1',
@@ -8,7 +8,6 @@ const salaried: Employee = {
   department: 'Audit',
   payType: 'salary',
   rate: 78_000,
-  payFrequency: 'biweekly',
   pretaxDeferralRate: 0.05,
   active: true,
 }
@@ -18,17 +17,18 @@ const hourly: Employee = {
   id: 'e2',
   payType: 'hourly',
   rate: 20,
-  payFrequency: 'weekly',
   pretaxDeferralRate: 0,
 }
 
 describe('calculateGrossPay', () => {
   it('연봉을 지급 주기로 나눈다', () => {
-    expect(calculateGrossPay({ employee: salaried })).toBe(3000)
+    expect(calculateGrossPay({ employee: salaried, payFrequency: 'biweekly' })).toBe(3000)
   })
 
   it('시급 근로자의 초과근무에 1.5배를 적용한다', () => {
-    expect(calculateGrossPay({ employee: hourly, regularHours: 40, overtimeHours: 5 })).toBe(950)
+    expect(
+      calculateGrossPay({ employee: hourly, payFrequency: 'weekly', regularHours: 40, overtimeHours: 5 }),
+    ).toBe(950)
   })
 })
 
@@ -41,12 +41,26 @@ describe('calculateSocialSecurity', () => {
 
 describe('calculatePayroll', () => {
   it('공제 합계와 실수령액이 일치한다', () => {
-    const r = calculatePayroll({ employee: salaried })
+    const r = calculatePayroll({ employee: salaried, payFrequency: 'biweekly' })
     expect(r.grossPay).toBe(3000)
     expect(r.pretaxDeductions).toBe(150)
     expect(r.taxableWages).toBe(2850)
     expect(r.socialSecurity).toBe(186)
     expect(r.medicare).toBe(43.5)
     expect(r.netPay).toBeCloseTo(r.grossPay - r.totalDeductions, 2)
+  })
+
+  it('회사 부담 FICA를 총비용에 포함한다', () => {
+    const r = calculatePayroll({ employee: salaried, payFrequency: 'biweekly' })
+    expect(r.employerCost).toBe(3229.5)
+  })
+})
+
+describe('sumResults', () => {
+  it('연방 예치금은 원천징수와 직원·회사 FICA의 합이다', () => {
+    const r = calculatePayroll({ employee: salaried, payFrequency: 'biweekly' })
+    const t = sumResults([r, r])
+    expect(t.gross).toBe(6000)
+    expect(t.federalDeposit).toBe(2 * (r.federalWithholding + 2 * (r.socialSecurity + r.medicare)))
   })
 })

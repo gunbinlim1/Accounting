@@ -19,6 +19,12 @@ export const payrollConfig = {
   overtimeMultiplier: 1.5,
 } as const
 
+/** 회사 급여 일정: 격주 금요일, 기준일부터 14일 간격 */
+export const companySchedule = {
+  frequency: 'biweekly' as PayFrequency,
+  anchorDate: '2026-01-09',
+}
+
 export const periodsPerYear: Record<PayFrequency, number> = {
   weekly: 52,
   biweekly: 26,
@@ -26,9 +32,10 @@ export const periodsPerYear: Record<PayFrequency, number> = {
   monthly: 12,
 }
 
-export const payFrequencyLabel: Record<PayFrequency, string> = {
-  weekly: '주급',
-  biweekly: '격주',
-  semimonthly: '월 2회',
-  monthly: '월급',
+/** 지급 주기별 표준 정규 근무시간 (주 40시간 기준) */
+export const standardHours: Record<PayFrequency, number> = {
+  weekly: 40,
+  biweekly: 80,
+  semimonthly: 86.67,
+  monthly: 173.33,
 }
