@@ -9,7 +9,7 @@ import { formatCurrency, formatDate } from '../lib/format'
 import { effectiveEmployee } from '../lib/payroll'
 import { cashOutOf, timeLeft } from '../lib/runStatus'
 import { parseISODate, subtractBusinessDays } from '../lib/schedule'
-import { ytdGrossFor } from '../lib/ytd'
+import { ytdFor } from '../lib/ytd'
 import { currentPayDate, usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import type { RunStatus } from '../types'
@@ -28,10 +28,11 @@ export default function FirmQueue() {
     () =>
       companies.map((c) => {
         const status: RunStatus = c.current.payDate === payDate ? c.current.status : 'draft'
-        const ytd = ytdGrossFor(c.runs, payDate)
+        const ytdAll = ytdFor(c.runs, payDate)
+        const ytd = Object.fromEntries(Object.entries(ytdAll).map(([id, y]) => [id, y.gross]))
         const view = c.current.snapshot && (status === 'submitted' || status === 'in_review' || status === 'processed')
           ? c.current.snapshot
-          : { employees: c.employees, time: c.time, results: computeResults(c.employees, c.time, ytd, c.company.sutaRate) }
+          : { employees: c.employees, time: c.time, results: computeResults(c.employees, c.time, ytdAll, c.company.sutaRate) }
         const checks = runChecks({
           employees: view.employees.filter((e) => e.active).map((e) => effectiveEmployee(e, view.time[e.id], companySchedule.frequency)),
           time: view.time,

@@ -21,13 +21,18 @@ export default function Login() {
   const [code, setCode] = useState(['', '', '', '', '', ''])
   const codeRefs = useRef<(HTMLInputElement | null)[]>([])
 
-  if (session) return <Navigate to={session.role === 'firm' ? '/firm' : '/'} replace />
+  if (session) return <Navigate to={(session.role === 'firm' ? '/firm' : session.role === 'employee' ? '/me' : '/')} replace />
 
   const resolve = (addr: string): Session | null => {
     const e = addr.trim().toLowerCase()
     if (e === firmAccount.email) return { role: 'firm', name: firmAccount.name, email: e }
     const c = companies.find((x) => x.company.ownerEmail.toLowerCase() === e)
-    return c ? { role: 'client', companyId: c.company.id, name: c.company.ownerName, email: e } : null
+    if (c) return { role: 'client', companyId: c.company.id, name: c.company.ownerName, email: e }
+    for (const co of companies) {
+      const emp = co.employees.find((x) => x.email?.toLowerCase() === e && x.active)
+      if (emp) return { role: 'employee', companyId: co.company.id, employeeId: emp.id, name: emp.name, email: e }
+    }
+    return null
   }
 
   const submit = (ev: FormEvent) => {
@@ -54,7 +59,7 @@ export default function Login() {
   const verify = (digits = code) => {
     if (digits.join('').length !== 6 || !pending) return
     login(pending)
-    navigate(pending.role === 'firm' ? '/firm' : '/', { replace: true })
+    navigate(pending.role === 'firm' ? '/firm' : pending.role === 'employee' ? '/me' : '/', { replace: true })
   }
 
   const setDigit = (i: number, v: string) => {
@@ -125,6 +130,14 @@ export default function Login() {
                     <ArrowRight size={16} aria-hidden />
                   </button>
                 ))}
+                <button className="demo-acct emp" onClick={() => quick('maria.lopez@mail.example')}>
+                  <span className="identity-logo sm">ML</span>
+                  <span>
+                    <strong>Maria Lopez</strong>
+                    <small>{t('직원 포털 (Seoul Garden BBQ 서버)', 'Employee portal (Seoul Garden server)')}</small>
+                  </span>
+                  <ArrowRight size={16} aria-hidden />
+                </button>
                 <button className="demo-acct firm" onClick={() => quick(firmAccount.email)}>
                   <span className="identity-logo sm">CPA</span>
                   <span>

@@ -1,7 +1,7 @@
 import { restaurantRoles } from '../config/restaurantRoles'
 import { defaultW4 } from '../lib/federalWithholding'
 import { toISODate } from '../lib/schedule'
-import type { ActivityEvent, Company, Employee, RoleId } from '../types'
+import type { ActivityEvent, Authorizations, Company, Employee, FringeEntry, PayMethod, RoleId } from '../types'
 import { sampleEmployees } from './sampleEmployees'
 
 /** 데모 회계법인 계정 (가상) */
@@ -33,8 +33,34 @@ function staff(prefix: string, name: string, role: RoleId, hireDate: string, ext
         { title: 'Social Security Card', issuer: 'SSA', numberLast4: '0907' },
       ],
     },
+    email: `${name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/^\.|\.$/g, '')}@mail.example`,
+    payMethod: 'direct_deposit',
+    bank: { routingLast4: '0021', accountLast4: String(2000 + ((seq * 37) % 7000)).slice(-4), type: 'checking' },
+    eConsent: true,
     ...extra,
   }
+}
+
+const signed: Authorizations = { form8655: 'signed', twcAgent: 'signed', bankDebit: 'signed' }
+
+/** 데모: 직원별로 매 회차 반복되는 Fringe Benefit */
+export const recurringFringes: Record<string, Omit<FringeEntry, 'id'>[]> = {
+  'SG-001': [{ itemId: 'meals', amount: 40 }],
+  'SG-004': [{ itemId: 'meals', amount: 60 }],
+  'SG-006': [{ itemId: 'health', amount: 450 }, { itemId: 'gtl', amount: 8 }],
+  'ES-005': [{ itemId: 'health', amount: 380 }, { itemId: 'vehicle', amount: 120 }],
+  'PB-007': [{ itemId: 'meals', amount: 50 }],
+}
+
+/** 데모: Seoul Garden 기존 샘플 직원의 지급 방식·이메일 */
+const seoulExtras: Record<string, { payMethod: PayMethod; eConsent: boolean; email: string }> = {
+  'SG-001': { payMethod: 'direct_deposit', eConsent: true, email: 'maria.lopez@mail.example' },
+  'SG-002': { payMethod: 'direct_deposit', eConsent: true, email: 'daniel.kim@mail.example' },
+  'SG-003': { payMethod: 'firm_check', eConsent: true, email: 'ashley.nguyen@mail.example' },
+  'SG-004': { payMethod: 'client_check', eConsent: false, email: 'carlos.ramirez@mail.example' },
+  'SG-005': { payMethod: 'client_check', eConsent: false, email: '' },
+  'SG-006': { payMethod: 'direct_deposit', eConsent: true, email: 'michael.brown@mail.example' },
+  'SG-007': { payMethod: 'firm_check', eConsent: true, email: 'tyler.smith@mail.example' },
 }
 
 const baseCompany = (c: Omit<Company, 'sutaRate' | 'depositSchedule' | 'cutoffBusinessDays' | 'address'> & Partial<Company>): Company => ({
@@ -61,22 +87,33 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
 
   const seoul = baseCompany({
     id: 'seoul-garden', legalName: 'Seoul Garden Hospitality LLC', dba: 'Seoul Garden BBQ', ein: '82-1234567', twcAccount: '99-123456-7',
-    sutaRate: 0.0275, ownerName: 'Grace Kim', ownerEmail: 'grace@seoulgarden.example', phone: '(713) 555-0110',
+    sutaRate: 0.0275, authorizations: signed, ownerName: 'Grace Kim', ownerEmail: 'grace@seoulgarden.example', phone: '(713) 555-0110',
     address: { street: '9889 Bellaire Blvd', city: 'Houston', state: 'TX', zip: '77036' },
   })
   const taqueria = baseCompany({
     id: 'el-sol', legalName: 'El Sol Foods Inc.', dba: 'Taqueria El Sol', ein: '74-7654321', twcAccount: '99-654321-0',
-    sutaRate: 0.019, depositSchedule: 'monthly', ownerName: 'Luis Hernández', ownerEmail: 'luis@elsol.example', phone: '(713) 555-0188',
+    sutaRate: 0.019, depositSchedule: 'monthly', authorizations: { ...signed, twcAgent: 'pending' }, ownerName: 'Luis Hernández', ownerEmail: 'luis@elsol.example', phone: '(713) 555-0188',
     address: { street: '6115 Hillcroft Ave', city: 'Houston', state: 'TX', zip: '77081' },
   })
   const pho = baseCompany({
     id: 'pho-bellaire', legalName: 'Bellaire Noodle House LLC', dba: 'Pho Bellaire', ein: '88-2468135', twcAccount: '99-246813-5',
-    ownerName: 'Linh Tran', ownerEmail: 'linh@phobellaire.example', phone: '(713) 555-0166',
+    authorizations: { form8655: 'pending', twcAgent: 'pending', bankDebit: 'signed' }, ownerName: 'Linh Tran', ownerEmail: 'linh@phobellaire.example', phone: '(713) 555-0166',
     address: { street: '11210 Bellaire Blvd', city: 'Houston', state: 'TX', zip: '77072' },
   })
 
   // 기존 샘플 직원은 Seoul Garden에 소속
-  const seoulStaff = sampleEmployees(today).map((e, i) => ({ ...e, id: `SG-${String(i + 1).padStart(3, '0')}` }))
+  const seoulStaff = sampleEmployees(today).map((e, i) => {
+    const id = `SG-${String(i + 1).padStart(3, '0')}`
+    const x = seoulExtras[id]
+    return {
+      ...e,
+      id,
+      email: x?.email || undefined,
+      payMethod: x?.payMethod ?? 'client_check',
+      eConsent: x?.eConsent ?? false,
+      bank: x?.payMethod === 'direct_deposit' ? { routingLast4: '0021', accountLast4: String(4100 + i * 7), type: 'checking' as const } : undefined,
+    }
+  })
 
   return [
     {
@@ -93,8 +130,8 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
       employees: [
         staff('ES', 'Rosa Martinez', 'server', '2023-05-01', { pretaxDeferralRate: 0.02 }),
         staff('ES', 'Diego Flores', 'cook', '2022-08-15', { rate: 17.5 }),
-        staff('ES', 'Ana Ruiz', 'server', '2024-02-12'),
-        staff('ES', 'Miguel Torres', 'dishwasher', '2025-03-03', { rate: 12.5 }),
+        staff('ES', 'Ana Ruiz', 'server', '2024-02-12', { payMethod: 'client_check', bank: undefined, eConsent: false }),
+        staff('ES', 'Miguel Torres', 'dishwasher', '2025-03-03', { rate: 12.5, payMethod: 'firm_check', bank: undefined }),
         staff('ES', 'Luis Hernández Jr.', 'manager', '2021-01-04', { rate: 48_000, w4: { ...defaultW4, filingStatus: 'married', dependentsAmount: 4_400, signedDate: '2024-01-08' } }),
       ],
       status: 'submitted',
@@ -107,7 +144,7 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
       employees: [
         staff('PB', 'Kevin Nguyen', 'server', '2024-09-09'),
         staff('PB', 'Mai Pham', 'cook', '2023-11-20', { rate: 16 }),
-        staff('PB', 'Tony Vo', 'busser', '2025-07-14', { w4: null }),
+        staff('PB', 'Tony Vo', 'busser', '2025-07-14', { w4: null, payMethod: 'client_check', bank: undefined }),
       ],
       status: 'changes_requested',
       note: 'Kevin Nguyen님의 카드 팁이 $0으로 들어왔어요. POS 리포트 기준 카드 팁 금액을 넣어 다시 제출해 주세요.',

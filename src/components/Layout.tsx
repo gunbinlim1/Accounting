@@ -1,5 +1,5 @@
 import {
-  Building2, CirclePlay, Inbox, Languages, LayoutDashboard, LogOut, Moon, RotateCcw, Search, SlidersHorizontal, Sun, UserPlus, Users,
+  Building2, CirclePlay, History, Inbox, Landmark, Languages, LayoutDashboard, LogOut, Moon, Plug, RotateCcw, Search, SlidersHorizontal, Sun, UserPlus, Users,
 } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
@@ -132,7 +132,9 @@ function ClientShell() {
     { to: '/', label: t('홈', 'Home'), icon: <LayoutDashboard size={20} />, end: true },
     { to: '/run', label: t('급여 실행', 'Run payroll'), icon: <CirclePlay size={20} /> },
     { to: '/employees', label: t('직원', 'People'), icon: <Users size={20} /> },
-    { to: '/company', label: t('회사 정보', 'Company'), icon: <Building2 size={20} /> },
+    { to: '/history', label: t('급여 내역', 'History'), icon: <History size={20} /> },
+    { to: '/taxes', label: t('세금·신고', 'Taxes'), icon: <Landmark size={20} /> },
+    { to: '/company', label: t('회사 정보', 'Company'), icon: <Building2 size={20} />, mobile: false },
     { to: '/simulator', label: t('시뮬레이터', 'What-if'), icon: <SlidersHorizontal size={20} />, mobile: false },
   ]
 
@@ -168,7 +170,7 @@ function ClientShell() {
 export function ClientLayout() {
   const { session } = usePortal()
   if (!session) return <Navigate to="/login" replace />
-  if (session.role !== 'client') return <Navigate to="/firm" replace />
+  if (session.role !== 'client') return <Navigate to={session.role === 'firm' ? '/firm' : '/me'} replace />
   return (
     <CompanyProvider companyId={session.companyId}>
       <ClientShell />
@@ -184,9 +186,12 @@ export function FirmLayout() {
   const navigate = useNavigate()
   const payDate = currentPayDate()
   if (!session) return <Navigate to="/login" replace />
-  if (session.role !== 'firm') return <Navigate to="/" replace />
+  if (session.role !== 'firm') return <Navigate to={session.role === 'employee' ? '/me' : '/'} replace />
 
-  const nav: NavItem[] = [{ to: '/firm', label: t('제출 대기열', 'Payroll queue'), icon: <Inbox size={20} />, end: true }]
+  const nav: NavItem[] = [
+    { to: '/firm', label: t('제출 대기열', 'Payroll queue'), icon: <Inbox size={20} />, end: true },
+    { to: '/firm/settings', label: t('지급·납부 연결', 'Payment rails'), icon: <Plug size={20} /> },
+  ]
   const commands: Command[] = [
     ...nav.map((n) => ({ id: `go-${n.to}`, label: n.label, hint: t('이동', 'Go to'), icon: n.icon, run: () => navigate(n.to) })),
     ...companies.map((c) => ({ id: `co-${c.company.id}`, label: c.company.dba, hint: t('검토', 'Review'), icon: <Building2 size={18} />, run: () => navigate(`/firm/c/${c.company.id}`) })),

@@ -5,6 +5,7 @@ import { filingLabel } from '../lib/labels'
 import { segmentsOf } from '../lib/segments'
 import { usePrefs } from '../prefs'
 import type { Employee, PayrollResult, TimeEntry } from '../types'
+import { fringeById } from '../config/fringeBenefits'
 import BreakdownBar from './BreakdownBar'
 
 interface Props {
@@ -141,6 +142,30 @@ export default function PayStub({ employee: e, result: r, time }: Props) {
           </ul>
         </section>
       </div>
+
+      {(r.fringeLines ?? []).length > 0 && (
+        <section className="stub-fringe">
+          <h3>{t('Fringe Benefit (현금 지급 아님 · 과세 대상만 세금에 반영)', 'Fringe benefits (not cash · only taxable value is taxed)')}</h3>
+          <ul className="stub-lines">
+            {r.fringeLines.map((l, i) => {
+              const item = fringeById(l.itemId)
+              const tags = [l.fit > 0 && t('소득세', 'income tax'), l.fica > 0 && 'FICA', l.futa > 0 && 'FUTA'].filter(Boolean)
+              return (
+                <li key={`${l.itemId}-${i}`}>
+                  <div className="stub-line-main">
+                    <span>{item ? t(item.ko, item.en) : l.itemId}</span>
+                    <span className="num">{formatCurrency(l.amount)}</span>
+                  </div>
+                  <div className="muted small">
+                    {tags.length ? t(`과세: ${tags.join('·')}`, `Taxed: ${tags.join(', ')}`) : t('면제', 'Exempt')}
+                    {item && ` — ${t(item.noteKo, item.noteEn)}`}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
 
       <div className="stub-employer">
         <div>

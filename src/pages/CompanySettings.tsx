@@ -1,4 +1,4 @@
-import { Check, Lock } from 'lucide-react'
+import { Check, FileSignature, Lock, ShieldCheck } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { ActivityList } from '../components/RunStatus'
 import { usePortal } from '../portal'
@@ -20,7 +20,7 @@ function Field({ label, hint, error, children, wide }: { label: string; hint?: s
 export default function CompanySettings() {
   const { t } = usePrefs()
   const { session } = usePortal()
-  const { company, updateCompanyInfo, activity } = useStore()
+  const { company, updateCompanyInfo, activity, signAuthorization } = useStore()
   const [d, setD] = useState<Company>(company)
   const [rate, setRate] = useState(String(Math.round(company.sutaRate * 10000) / 100))
   const [saved, setSaved] = useState(false)
@@ -101,6 +101,36 @@ export default function CompanySettings() {
               <div className="readonly-field"><Lock size={14} aria-hidden /> {t(`격주 금요일 · 지급일 ${d.cutoffBusinessDays}영업일 전 오후 3시`, `Biweekly Friday · ${d.cutoffBusinessDays} business days before, 3 PM`)}</div>
             </Field>
           </div>
+
+          <h3 className="sub"><ShieldCheck size={18} aria-hidden /> {t('대리 신고·납부 위임', 'Filing & payment authorizations')}</h3>
+          <p className="muted small">
+            {t('회계법인이 고객님 EIN·계정으로 세금을 신고하고 납부하려면 아래 세 가지 위임이 필요해요. 공동고용(PEO) 방식이 아니라 회사 명의 그대로 처리됩니다.',
+              'Your CPA needs these three authorizations to file and pay on your EIN and accounts. This is not co-employment (PEO) — everything stays in your company’s name.')}
+          </p>
+          <ul className="auth-list">
+            {([
+              ['form8655', 'IRS Form 8655', t('Reporting Agent 위임 — 941·940 신고와 연방 세금 예치', 'Reporting agent — files 941/940 and makes federal deposits')],
+              ['twcAgent', t('TWC 대리인 권한', 'TWC agent access'), t('텍사스 분기 보고(C-3)와 실업세 납부', 'Texas quarterly C-3 and unemployment tax')],
+              ['bankDebit', t('계좌 인출 동의', 'Bank debit authorization'), t('급여·세금을 회사 계좌에서 인출해 대신 지급·납부', 'Debit payroll and taxes from your account to pay on your behalf')],
+            ] as const).map(([k, label, desc]) => {
+              const ok = company.authorizations?.[k] === 'signed'
+              return (
+                <li key={k} className={ok ? 'ok' : ''}>
+                  <div>
+                    <strong>{label}</strong>
+                    <small className="muted">{desc}</small>
+                  </div>
+                  {ok ? (
+                    <span className="pill-dot good">{t('서명 완료', 'Signed')}</span>
+                  ) : (
+                    <button type="button" className="btn sm primary" onClick={() => signAuthorization(k, session?.name ?? company.ownerName)}>
+                      <FileSignature size={15} aria-hidden /> {t('전자 서명', 'E-sign')}
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
 
           <h3 className="sub">{t('담당자', 'Contact')}</h3>
           <div className="form-grid">

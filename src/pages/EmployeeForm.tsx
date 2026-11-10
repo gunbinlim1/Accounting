@@ -2,6 +2,8 @@ import { ArrowLeft, ArrowRight, Check, FileCheck2, IdCard, Lock, ShieldCheck, Us
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
+import DocUpload from '../components/DocUpload'
+import type { I9Extract, W4Extract } from '../lib/docExtract'
 import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import { restaurantRoles, roleOrder } from '../config/restaurantRoles'
 import { addBusinessDays, keepLast4, maskSsn } from '../lib/compliance'
@@ -14,7 +16,7 @@ import { segmentsOf } from '../lib/segments'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
-import type { CitizenshipStatus, Employee, FilingStatus, PayType, RoleId } from '../types'
+import type { CitizenshipStatus, Employee, FilingStatus, PayMethod, PayType, RoleId, UploadedDoc } from '../types'
 
 interface DocDraft {
   title: string
@@ -59,6 +61,16 @@ interface Draft {
   documentPath: 'A' | 'BC'
   docs: DocDraft[]
   section2Date: string
+  payMethod: PayMethod
+  routing: string
+  account: string
+  bankType: 'checking' | 'savings'
+  /** 저장된 계좌 뒤 4자리 "routing|account" */
+  bankExisting: string
+  eConsent: boolean
+  documents: UploadedDoc[]
+  /** 서류에서 자동 입력된 항목 이름 */
+  autoFilled: string[]
 }
 
 const today = () => toISODate(new Date())
@@ -74,6 +86,7 @@ function newDraft(): Draft {
     otherIncome: '0', deductions: '0', extraWithholding: '0', exempt: false, w4Signed: today(),
     citizenship: 'citizen', uscis: '', workAuthExpires: '', section1Date: today(),
     documentPath: 'A', docs: [{ ...blankDoc }, { ...blankDoc }], section2Date: '',
+    payMethod: 'direct_deposit', routing: '', account: '', bankType: 'checking', bankExisting: '', eConsent: true, documents: [], autoFilled: [],
   }
 }
 
@@ -91,6 +104,8 @@ function fromEmployee(e: Employee): Draft {
     extraWithholding: String(w4.extraWithholding), exempt: w4.exempt, w4Signed: w4.signedDate || today(),
     citizenship: e.i9.citizenship, uscis: e.i9.uscisLast4 ?? '', workAuthExpires: e.i9.workAuthExpires ?? '',
     section1Date: e.i9.section1Date ?? '', documentPath: e.i9.documentPath, docs, section2Date: e.i9.section2Date ?? '',
+    payMethod: e.payMethod ?? 'client_check', routing: '', account: '', bankType: e.bank?.type ?? 'checking',
+    bankExisting: e.bank ? `${e.bank.routingLast4}|${e.bank.accountLast4}` : '', eConsent: !!e.eConsent, documents: e.documents ?? [], autoFilled: [],
   }
 }
 
@@ -131,6 +146,17 @@ function toEmployee(d: Draft, id: string): Employee {
       documents: docs,
       section2Date: d.section2Date || undefined,
     },
+    payMethod: d.payMethod,
+    bank:
+      d.payMethod === 'direct_deposit'
+        ? {
+            routingLast4: d.routing ? keepLast4(d.routing) : d.bankExisting.split('|')[0] ?? '',
+            accountLast4: d.account ? keepLast4(d.account) : d.bankExisting.split('|')[1] ?? '',
+            type: d.bankType,
+          }
+        : undefined,
+    eConsent: d.eConsent,
+    documents: d.documents,
   }
 }
 
@@ -207,6 +233,13 @@ export default function EmployeeForm() {
       if (!d.ssnLast4Existing && digits.length !== 9 && digits.length !== 4) e.ssn = t('SSN 9자리 또는 뒤 4자리를 입력하세요', 'Enter the 9-digit SSN or its last 4')
       if (d.ssn && digits.length !== 9 && digits.length !== 4) e.ssn = t('숫자 9자리 또는 4자리', '9 or 4 digits')
       if (d.zip && !/^\d{5}(-\d{4})?$/.test(d.zip.trim())) e.zip = t('ZIP 5자리', '5-digit ZIP')
+      if (d.payMethod === 'direct_deposit') {
+        if (!d.bankExisting || d.routing) {
+          if (d.routing.replace(/\D/g, '').length !== 9) e.routing = t('라우팅 번호 9자리', '9-digit routing number')
+          if (d.account.replace(/\D/g, '').length < 4) e.account = t('계좌번호를 입력하세요', 'Enter the account number')
+        }
+      }
+      if (d.eConsent && !/\S+@\S+\.\S+/.test(d.email)) e.email = t('전자 수령에는 이메일이 필요해요', 'Email is required for electronic delivery')
     }
     if (step === 2 && d.w4Received) {
       for (const k of ['dependents', 'otherIncome', 'deductions', 'extraWithholding'] as const) {
@@ -255,6 +288,41 @@ export default function EmployeeForm() {
     navigate('/employees')
   }
 
+  const addDoc = (kind: 'W-4' | 'I-9', fileName: string, filled: number) =>
+    ({ kind, fileName, uploadedAt: new Date().toISOString(), autoFilled: filled }) as UploadedDoc
+
+  const applyW4 = (x: W4Extract, fileName: string) => {
+    const labels = [
+      x.name && t('이름', 'Name'), x.ssn && 'SSN', (x.street || x.city) && t('주소', 'Address'), x.filingStatus && t('신고 상태', 'Filing status'),
+      x.multipleJobs !== undefined && 'Step 2', x.dependents && t('부양가족', 'Dependents'), (x.otherIncome || x.deductions || x.extraWithholding) && 'Step 4',
+    ].filter(Boolean) as string[]
+    setD((p) => ({
+      ...p,
+      name: x.name ?? p.name, ssn: x.ssn ?? p.ssn, street: x.street ?? p.street, city: x.city ?? p.city, state: x.state ?? p.state, zip: x.zip ?? p.zip,
+      w4Received: true, filingStatus: x.filingStatus ?? p.filingStatus, multipleJobs: x.multipleJobs ?? p.multipleJobs,
+      dependents: x.dependents ?? p.dependents, otherIncome: x.otherIncome ?? p.otherIncome, deductions: x.deductions ?? p.deductions,
+      extraWithholding: x.extraWithholding ?? p.extraWithholding, exempt: x.exempt ?? p.exempt,
+      documents: [...p.documents.filter((doc) => doc.kind !== 'W-4'), addDoc('W-4', fileName, labels.length)],
+      autoFilled: [...new Set([...p.autoFilled, ...labels.map((l) => `W-4 ${l}`)])],
+    }))
+  }
+
+  const applyI9 = (x: I9Extract, fileName: string) => {
+    const labels = [
+      x.name && t('이름', 'Name'), x.ssn && 'SSN', x.dob && t('생년월일', 'DOB'), (x.street || x.city) && t('주소', 'Address'),
+      x.email && t('이메일', 'Email'), x.phone && t('전화', 'Phone'), x.citizenship && t('시민권 상태', 'Status'), x.uscis && 'A-Number', x.workAuthExpires && t('허가 만료일', 'Auth expiry'),
+    ].filter(Boolean) as string[]
+    setD((p) => ({
+      ...p,
+      name: p.name || x.name || '', ssn: p.ssn || x.ssn || '', dob: x.dob ?? p.dob, email: x.email ?? p.email, phone: x.phone ?? p.phone,
+      street: p.street || x.street || '', city: x.city ?? p.city, state: x.state ?? p.state, zip: x.zip ?? p.zip,
+      citizenship: x.citizenship ?? p.citizenship, uscis: x.uscis ?? p.uscis, workAuthExpires: x.workAuthExpires ?? p.workAuthExpires,
+      section1Date: p.section1Date || p.hireDate,
+      documents: [...p.documents.filter((doc) => doc.kind !== 'I-9'), addDoc('I-9', fileName, labels.length)],
+      autoFilled: [...new Set([...p.autoFilled, ...labels.map((l) => `I-9 ${l}`)])],
+    }))
+  }
+
   const pickRole = (role: RoleId) => {
     const tpl = restaurantRoles[role]
     setD((p) => ({ ...p, role, payType: tpl.payType, rate: String(tpl.rate) }))
@@ -293,6 +361,14 @@ export default function EmployeeForm() {
         <section className="card form-card">
           {step === 0 && (
             <>
+              {!d.id && <DocUpload onW4={applyW4} onI9={applyI9} />}
+              {d.autoFilled.length > 0 && (
+                <div className="auto-banner">
+                  <strong>{t('서류에서 자동 입력됨', 'Filled from documents')}</strong>
+                  <span>{d.autoFilled.join(' · ')}</span>
+                  <small className="muted">{t('각 단계에서 값을 확인하고, 틀린 곳은 고쳐 주세요.', 'Check each value in the steps ahead and fix anything wrong.')}</small>
+                </div>
+              )}
               <h2>{t('직무 템플릿', 'Role template')}</h2>
               <div className="role-grid">
                 {roleOrder.map((r) => {
@@ -381,10 +457,44 @@ export default function EmployeeForm() {
                 <Field label={t('전화', 'Phone')}>
                   <input type="tel" value={d.phone} onChange={(e) => set('phone', e.target.value)} placeholder="(713) 555-0100" />
                 </Field>
-                <Field label={t('이메일', 'Email')}>
+                <Field label={t('이메일', 'Email')} error={err('email')}>
                   <input type="email" value={d.email} onChange={(e) => set('email', e.target.value)} />
                 </Field>
               </div>
+
+              <h3 className="sub">{t('급여 지급 방법', 'How they get paid')}</h3>
+              <div className="choice-grid three">
+                {([
+                  ['direct_deposit', t('직접입금', 'Direct deposit'), t('직원 은행 계좌로 입금', 'Into the employee’s bank')],
+                  ['firm_check', t('회계법인 인쇄 수표', 'CPA-printed check'), t('회계법인이 수표를 인쇄해 준비', 'We print the check for pickup')],
+                  ['client_check', t('대표님 수표', 'Your own check'), t('명세서를 보고 직접 발행', 'You write it from the stub')],
+                ] as [PayMethod, string, string][]).map(([m, label, sub]) => (
+                  <button type="button" key={m} className={`choice stacked${d.payMethod === m ? ' on' : ''}`} onClick={() => set('payMethod', m)}>
+                    <strong>{label}</strong>
+                    <small>{sub}</small>
+                  </button>
+                ))}
+              </div>
+              {d.payMethod === 'direct_deposit' && (
+                <div className="form-grid three">
+                  <Field label={t('라우팅 번호', 'Routing number')} error={err('routing')} hint={d.bankExisting ? t(`저장됨: ****${d.bankExisting.split('|')[0]} — 바꿀 때만 입력`, `On file: ****${d.bankExisting.split('|')[0]}`) : t('뒤 4자리만 저장', 'Last 4 stored')}>
+                    <input inputMode="numeric" autoComplete="off" value={d.routing} onChange={(e) => set('routing', e.target.value)} placeholder="111000025" />
+                  </Field>
+                  <Field label={t('계좌번호', 'Account number')} error={err('account')} hint={d.bankExisting ? t(`저장됨: ****${d.bankExisting.split('|')[1]}`, `On file: ****${d.bankExisting.split('|')[1]}`) : t('뒤 4자리만 저장', 'Last 4 stored')}>
+                    <input inputMode="numeric" autoComplete="off" value={d.account} onChange={(e) => set('account', e.target.value)} />
+                  </Field>
+                  <Field label={t('계좌 종류', 'Account type')}>
+                    <Segmented<'checking' | 'savings'> value={d.bankType} onChange={(v) => set('bankType', v)} options={[{ value: 'checking', label: 'Checking' }, { value: 'savings', label: 'Savings' }]} />
+                  </Field>
+                </div>
+              )}
+              <label className="toggle">
+                <input type="checkbox" checked={d.eConsent} onChange={(e) => set('eConsent', e.target.checked)} />
+                <span>
+                  {t('급여명세서·W-2 전자 수령에 동의함 (직원 서명 받음)', 'Employee consented to electronic pay stubs and W-2')}
+                  <small className="muted block">{t('동의하면 매 회차 명세서를 이메일로 받고 W-2를 직원 포털에서 봅니다. 동의가 없으면 W-2는 종이로 발송해야 해요.', 'With consent, stubs are emailed and the W-2 is in the employee portal. Without it, the W-2 must be mailed on paper.')}</small>
+                </span>
+              </label>
             </>
           )}
 
@@ -564,6 +674,19 @@ export default function EmployeeForm() {
                       : t('미제출 — Single 기준', 'Not received — Single default')}
                   </dd>
                 </div>
+                <div>
+                  <dt>{t('지급', 'Pay by')}</dt>
+                  <dd>
+                    {{ direct_deposit: t('직접입금', 'Direct deposit'), firm_check: t('회계법인 인쇄 수표', 'CPA-printed check'), client_check: t('대표님 수표', 'Your own check') }[d.payMethod]}
+                    {' · '}{d.eConsent ? t('전자 수령 동의', 'E-delivery consent') : t('종이 수령', 'Paper')}
+                  </dd>
+                </div>
+                {d.documents.length > 0 && (
+                  <div>
+                    <dt>{t('첨부 서류', 'Documents')}</dt>
+                    <dd>{d.documents.map((doc) => `${doc.kind}: ${doc.fileName}`).join(' · ')}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>I-9</dt>
                   <dd>

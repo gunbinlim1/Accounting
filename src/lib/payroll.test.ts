@@ -108,3 +108,33 @@ describe('회차별 급여 금액 (rate override)', () => {
     expect(run(e).grossPay).toBe(2_200)
   })
 })
+
+describe('Fringe Benefit (Pub. 15-B)', () => {
+  it('회사 부담 건강보험은 모든 세금 면제, 순급여 변화 없음', () => {
+    const base = run(manager)
+    const r = run(manager, { fringes: [{ id: 'f', itemId: 'health', amount: 450 }] })
+    expect(r.fringeTotal).toBe(450)
+    expect(r.ficaWages).toBe(base.ficaWages)
+    expect(r.netPay).toBe(base.netPay)
+  })
+  it('단체 생명보험 초과분은 FICA만 원천징수, Box 1에는 포함', () => {
+    const base = run(manager)
+    const r = run(manager, { fringes: [{ id: 'f', itemId: 'gtl', amount: 100 }] })
+    expect(r.socialSecurity).toBeCloseTo(base.socialSecurity + 6.2, 2)
+    expect(r.federalWithholding).toBe(base.federalWithholding)
+    expect(r.box1Wages).toBeCloseTo(base.box1Wages + 100, 2)
+    expect(r.futa).toBe(base.futa)
+  })
+  it('기프트카드는 소득세·FICA·FUTA 모두 과세, 현금 지급은 아님', () => {
+    const base = run(cook, { regular: 80 })
+    const r = run(cook, { regular: 80, fringes: [{ id: 'f', itemId: 'gift_card', amount: 100 }] })
+    expect(r.federalTaxableWages).toBeCloseTo(base.federalTaxableWages + 100, 2)
+    expect(r.grossPay).toBe(base.grossPay)
+    expect(r.netPay).toBeLessThan(base.netPay)
+  })
+  it('부양가족 돌봄 지원은 연 $7,500 초과분만 과세', () => {
+    const r = run(manager, { fringes: [{ id: 'f', itemId: 'dependent_care', amount: 1000 }] }, { fringe: { dependent_care: 7_000 } })
+    expect(r.fringeLines[0].fica).toBe(500)
+    expect(r.fringeLines[0].fit).toBe(500)
+  })
+})

@@ -78,6 +78,38 @@ export interface Employee {
   /** null이면 W-4 미제출 → IRS 규정상 Single·조정 없음으로 원천징수 */
   w4: W4 | null
   i9: I9
+  /** 급여 지급 방식 (기본: 고객 수표) */
+  payMethod?: PayMethod
+  /** 직접입금 계좌 (보안상 뒤 4자리만) */
+  bank?: BankAccount
+  /** 급여명세서·W-2 전자 수령 동의 */
+  eConsent?: boolean
+  /** 업로드한 서류 기록 (파일 자체는 서버 단계에서 보관) */
+  documents?: UploadedDoc[]
+}
+
+/** 1) 고객이 직접 수표 발행 2) 회계법인이 수표 인쇄 3) 직접입금 */
+export type PayMethod = 'client_check' | 'firm_check' | 'direct_deposit'
+
+export interface BankAccount {
+  routingLast4: string
+  accountLast4: string
+  type: 'checking' | 'savings'
+}
+
+export interface UploadedDoc {
+  kind: 'W-4' | 'I-9'
+  fileName: string
+  uploadedAt: string
+  /** 자동 입력된 칸 수 */
+  autoFilled: number
+}
+
+/** Fringe Benefit 한 건 (현금이 아닌 혜택의 가치) */
+export interface FringeEntry {
+  id: string
+  itemId: string
+  amount: number
 }
 
 /** 급여 기간별 근무·팁 입력 */
@@ -93,13 +125,17 @@ export interface TimeEntry {
    * hourly/tipped: 시급, salary: 회당 급여
    */
   rate?: number
+  /** 이번 회차 Fringe Benefit */
+  fringes?: FringeEntry[]
 }
 
 export interface YtdTotals {
-  /** FICA 대상 총급여 (팁 포함) */
+  /** FICA 대상 임금 누적 (팁·과세 Fringe 포함) */
   gross: number
   futaWages: number
   sutaWages: number
+  /** Fringe 항목별 연간 누적 (한도 계산용) */
+  fringe: Record<string, number>
 }
 
 export interface PayrollInput {
@@ -146,6 +182,24 @@ export interface PayrollResult {
   tipCredit45B: number
   // ── W-2 보고용 (2026~)
   qualifiedOvertimePremium: number
+  // ── Fringe Benefit
+  fringeTotal: number
+  /** FICA 대상 임금 (총급여 + 과세 Fringe) */
+  ficaWages: number
+  /** FUTA·TWC 대상 임금 */
+  futaWages: number
+  /** W-2 Box 1 (연방 과세 임금) */
+  box1Wages: number
+  fringeLines: FringeLine[]
+}
+
+export interface FringeLine {
+  itemId: string
+  amount: number
+  /** 연방 소득세 과세분 */
+  fit: number
+  fica: number
+  futa: number
 }
 
 export interface PayRun {
@@ -155,6 +209,31 @@ export interface PayRun {
   approvedAt: string
   time: Record<string, TimeEntry>
   results: PayrollResult[]
+  /** 직원별 지급 처리 결과 */
+  payments?: PaymentRecord[]
+}
+
+export interface PaymentRecord {
+  employeeId: string
+  method: PayMethod
+  amount: number
+  status: 'ready_for_client' | 'check_printed' | 'deposit_scheduled'
+  /** 급여명세서 이메일 발송 여부 (전자 수령 동의 + 이메일) */
+  stubEmailed: boolean
+}
+
+export type TaxKind = 'federal' | 'futa' | 'twc'
+
+/** 회계법인이 고객 대신 납부하는 세금 (고객 계좌에서 인출) */
+export interface TaxDeposit {
+  id: string
+  kind: TaxKind
+  /** 대상 기간 표시 (예: 2026-11-13 급여, 2026 Q3) */
+  period: string
+  amount: number
+  dueDate: string
+  status: 'scheduled' | 'paid'
+  paidAt?: string
 }
 
 // ───────── 고객 포털 ─────────
@@ -181,6 +260,17 @@ export interface Company {
   phone: string
   /** 지급일 몇 영업일 전까지 제출 */
   cutoffBusinessDays: number
+  /** 회계법인 대리 신고·납부 위임 상태 */
+  authorizations?: Authorizations
+}
+
+export interface Authorizations {
+  /** IRS Form 8655 Reporting Agent Authorization */
+  form8655: 'signed' | 'pending'
+  /** 텍사스 TWC 대리인 권한 */
+  twcAgent: 'signed' | 'pending'
+  /** 급여·세금 대행 납부용 고객 계좌 인출 동의 */
+  bankDebit: 'signed' | 'pending'
 }
 
 export interface ActivityEvent {
@@ -217,8 +307,10 @@ export interface CompanyData {
   runs: PayRun[]
   current: CurrentRun
   activity: ActivityEvent[]
+  deposits: TaxDeposit[]
 }
 
 export type Session =
   | { role: 'client'; companyId: string; name: string; email: string }
   | { role: 'firm'; name: string; email: string }
+  | { role: 'employee'; companyId: string; employeeId: string; name: string; email: string }

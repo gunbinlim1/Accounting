@@ -4,11 +4,12 @@ import { defaultTimeFor } from './config/restaurantRoles'
 import { computeResults } from './lib/compute'
 import { effectiveEmployee } from './lib/payroll'
 import { parseISODate, subtractBusinessDays } from './lib/schedule'
-import { ytdGrossFor } from './lib/ytd'
+import { ytdFor } from './lib/ytd'
 import { currentPayDate, usePortal } from './portal'
 import type {
-  ActivityEvent, Company, CompanyData, CurrentRun, Employee, PayRun, PayrollResult, RunStatus, TimeEntry,
+  ActivityEvent, Authorizations, Company, CompanyData, CurrentRun, Employee, PayRun, PayrollResult, RunStatus, TaxDeposit, TaxKind, TimeEntry,
 } from './types'
+import { federalDepositFor, paymentsFor } from './lib/payments'
 
 const emptyTime: TimeEntry = { regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }
 
@@ -48,6 +49,13 @@ interface Store {
   requestChanges: (actorName: string, note: string) => void
   markProcessed: (actorName: string) => PayRun
   sendReminder: (actorName: string) => void
+  deposits: TaxDeposit[]
+  /** 회계법인: 예치 완료 처리 */
+  markDepositPaid: (id: string, actorName: string) => void
+  /** 회계법인: 분기 FUTA·TWC 납부 기록 */
+  recordQuarterDeposit: (kind: Exclude<TaxKind, 'federal'>, period: string, amount: number, dueDate: string, actorName: string) => void
+  /** 고객: 대리 신고·납부 위임 서명 */
+  signAuthorization: (key: keyof Authorizations, actorName: string) => void
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -74,8 +82,9 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
   const derived = useMemo(() => {
     if (!data) return null
     const status: RunStatus = data.current.payDate === payDate ? data.current.status : 'draft'
-    const ytdGross = ytdGrossFor(data.runs, payDate)
-    const results = computeResults(data.employees, data.time, ytdGross, data.company.sutaRate)
+    const ytd = ytdFor(data.runs, payDate)
+    const ytdGross = Object.fromEntries(Object.entries(ytd).map(([id, y]) => [id, y.gross]))
+    const results = computeResults(data.employees, data.time, ytd, data.company.sutaRate)
     const runs = [...data.runs].sort((a, b) => b.payDate.localeCompare(a.payDate))
     const snapshot = data.current.payDate === payDate ? data.current.snapshot : undefined
     const view: RunView = snapshot && status !== 'draft' && status !== 'changes_requested'
@@ -106,6 +115,7 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
 
   const value: Store = {
     company: data.company,
+    deposits: data.deposits ?? [],
     employees: data.employees,
     time: data.time,
     current: data.current,
@@ -167,15 +177,61 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
 
     markProcessed: (actorName) => {
       const snap = data.current.snapshot ?? { time: data.time, results: derived.results }
-      const run: PayRun = { id: `run-${payDate}`, payDate, approvedAt: new Date().toISOString(), time: snap.time, results: snap.results }
+      const people = data.current.snapshot?.employees ?? data.employees
+      const run: PayRun = {
+        id: `run-${payDate}`, payDate, approvedAt: new Date().toISOString(), time: snap.time, results: snap.results,
+        payments: paymentsFor(people, snap.results),
+      }
+      const fed = federalDepositFor(run, data.company.depositSchedule, false)
       update((c) => ({
         ...c,
         runs: [...c.runs.filter((r) => r.payDate !== payDate), run],
+        deposits: [...(c.deposits ?? []).filter((d) => d.id !== fed.id), fed],
         current: { ...c.current, payDate, status: 'processed' },
         activity: [event('firm', actorName, 'processed', '급여 처리 완료 — 급여명세서 발행', 'Payroll processed — pay stubs issued'), ...c.activity],
       }))
       return run
     },
+
+    markDepositPaid: (id, actorName) =>
+      update((c) => {
+        const d = c.deposits.find((x) => x.id === id)
+        const label = d ? (d.kind === 'federal' ? 'IRS' : d.kind.toUpperCase()) : ''
+        return {
+          ...c,
+          deposits: c.deposits.map((x) => (x.id === id ? { ...x, status: 'paid', paidAt: new Date().toISOString().slice(0, 10) } : x)),
+          activity: d
+            ? [event('firm', actorName, 'settings', `세금 납부 완료: ${label} $${d.amount.toFixed(2)}`, `Tax paid: ${label} $${d.amount.toFixed(2)}`), ...c.activity]
+            : c.activity,
+        }
+      }),
+
+    recordQuarterDeposit: (kind, period, amount, dueDate, actorName) =>
+      update((c) => {
+        const label = kind === 'futa' ? 'FUTA' : 'TWC'
+        return {
+          ...c,
+          deposits: [
+            ...c.deposits.filter((x) => x.id !== `${kind}-${period}`),
+            { id: `${kind}-${period}`, kind, period, amount, dueDate, status: 'paid', paidAt: new Date().toISOString().slice(0, 10) },
+          ],
+          activity: [event('firm', actorName, 'settings', `${label} ${period} 납부 $${amount.toFixed(2)}`, `${label} ${period} paid $${amount.toFixed(2)}`), ...c.activity],
+        }
+      }),
+
+    signAuthorization: (key, actorName) =>
+      update((c) => {
+        const ko = { form8655: 'IRS Form 8655', twcAgent: 'TWC 대리인 권한', bankDebit: '계좌 인출 동의' }[key]
+        const en = { form8655: 'IRS Form 8655', twcAgent: 'TWC agent access', bankDebit: 'Bank debit authorization' }[key]
+        return {
+          ...c,
+          company: {
+            ...c.company,
+            authorizations: { form8655: 'pending', twcAgent: 'pending', bankDebit: 'pending', ...c.company.authorizations, [key]: 'signed' },
+          },
+          activity: [event('client', actorName, 'settings', `위임 서명: ${ko}`, `Signed: ${en}`), ...c.activity],
+        }
+      }),
 
     sendReminder: (actorName) =>
       update((c) => ({ ...c, activity: [event('firm', actorName, 'reminder', '제출 마감 알림 전송', 'Sent a deadline reminder'), ...c.activity] })),

@@ -1,8 +1,11 @@
 import {
-  ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, Clock, Info, Lock, MessageSquareWarning, OctagonAlert, Printer, RotateCcw, Search, Send, TriangleAlert, Undo2,
+  ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, Clock, FileSpreadsheet, Info, Lock, MessageSquareWarning, OctagonAlert, Printer, RotateCcw, Search, Send, TriangleAlert, Undo2,
 } from 'lucide-react'
 import { Fragment, useMemo, useState, type KeyboardEvent } from 'react'
 import CheckList from '../components/CheckList'
+import FringeEditor from '../components/FringeEditor'
+import ImportDialog from '../components/ImportDialog'
+import PaymentsTable from '../components/PaymentsTable'
 import PayStub from '../components/PayStub'
 import PayrollReview from '../components/PayrollReview'
 import { StatusBadge, StatusTimeline } from '../components/RunStatus'
@@ -114,6 +117,7 @@ export default function PayrollRun() {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [now] = useState(() => new Date())
   const me = session?.name ?? company.ownerName
 
@@ -223,6 +227,10 @@ export default function PayrollRun() {
           </p>
         </section>
 
+        {status === 'processed' && store.approvedForPayDate?.payments && (
+          <PaymentsTable payments={store.approvedForPayDate.payments} employees={view.employees} payDate={payDate} />
+        )}
+
         <PayrollReview view={view} checks={checks} />
 
         {status === 'processed' && (
@@ -276,6 +284,9 @@ export default function PayrollRun() {
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('직원 검색', 'Search people')} />
             </div>
             <div className="toolbar-actions">
+              <button className="btn sm import-btn" onClick={() => setImportOpen(true)}>
+                <FileSpreadsheet size={15} aria-hidden /> {t('엑셀·CSV 가져오기', 'Import Excel/CSV')}
+              </button>
               <span className="muted small">{t('모두 적용:', 'Apply to all:')}</span>
               {lastRun && <button className="chip" onClick={() => applyAll((e) => lastRun.time[e.id])}>{t('지난번과 동일', 'Same as last')}</button>}
               <button className="chip" onClick={() => applyAll((e) => defaultTimeFor(e.role))}>{t('직무 기본값', 'Role defaults')}</button>
@@ -295,6 +306,7 @@ export default function PayrollRun() {
                   <th className="num">{t('OT 시간', 'OT hrs')}</th>
                   <th className="num">{t('현금 팁', 'Cash tips')}</th>
                   <th className="num">{t('카드 팁', 'Card tips')}</th>
+                  <th className="num">Fringe</th>
                   <th className="num">{t('총급여', 'Gross pay')}</th>
                   <th aria-label={t('상세', 'Details')} />
                 </tr>
@@ -337,6 +349,11 @@ export default function PayrollRun() {
                         <td className="num" data-label={t('카드 팁', 'Card tips')}>
                           <CellInput row={ri} col={3} money disabled={!tips} label={`${e.name} ${t('카드 팁', 'card tips')}`} value={h.cardTips} onChange={(v) => setTime(e.id, { cardTips: v })} />
                         </td>
+                        <td className="num fringe-cell" data-label="Fringe">
+                          <button type="button" className={`chip${r.fringeTotal ? ' on' : ''}`} onClick={() => setOpen(e.id)}>
+                            {r.fringeTotal ? formatCurrency(r.fringeTotal) : t('+ 추가', '+ Add')}
+                          </button>
+                        </td>
                         <td className="num gross-cell" data-label={t('총급여', 'Gross pay')}>
                           <strong>{formatCurrency(r.grossPay)}</strong>
                           {r.tipMakeUp > 0 && <span className="tag warn">+{formatCurrency(r.tipMakeUp)} {t('보전', 'make-up')}</span>}
@@ -349,7 +366,7 @@ export default function PayrollRun() {
                       </tr>
                       {isOpen && (
                         <tr className="detail-row">
-                          <td colSpan={8}>
+                          <td colSpan={9}>
                             <div className="row-detail">
                               <div className="row-detail-facts">
                                 {r.hours > 0 && (
@@ -363,6 +380,7 @@ export default function PayrollRun() {
                                 <span>{t('입금액', 'Net pay')} <strong>{formatCurrency(r.netPay)}</strong></span>
                               </div>
                               {issues.length > 0 && <CheckList checks={issues} />}
+                              <FringeEditor entries={h.fringes} onChange={(fringes) => setTime(e.id, { fringes })} />
                               {!salary && (
                                 <div className="chips">
                                   <button className="chip" onClick={() => setTime(e.id, defaultTimeFor(e.role))}>{t('직무 기본값', 'Role default')}</button>
@@ -385,6 +403,7 @@ export default function PayrollRun() {
                   <td className="num">{active.reduce((a, e) => a + (time[e.id]?.overtime ?? 0) * Number(e.payType !== 'salary'), 0)}</td>
                   <td className="num">{formatCurrency(totals.cashTips)}</td>
                   <td className="num">{formatCurrency(totals.cardTips)}</td>
+                  <td className="num">{formatCurrency(totals.fringe)}</td>
                   <td className="num"><strong>{formatCurrency(totals.gross)}</strong></td>
                   <td />
                 </tr>
@@ -395,6 +414,15 @@ export default function PayrollRun() {
             {t('시급·회당 급여는 이번 회차에만 적용되고, "기본값으로 저장"을 누르면 직원 정보에도 반영돼요. Enter 또는 ↑↓ 키로 위아래 칸을 이동할 수 있어요.', 'Rates apply to this run only; "Save as default" updates the employee. Use Enter or ↑↓ to move between rows.')}
           </p>
         </section>
+
+        {importOpen && (
+          <ImportDialog
+            companyId={company.id}
+            employees={employees}
+            onClose={() => setImportOpen(false)}
+            onApply={(updates) => { updates.forEach((u) => setTime(u.id, u.patch)); setImportOpen(false) }}
+          />
+        )}
 
         <div className="action-bar">
           <div className="action-bar-inner">

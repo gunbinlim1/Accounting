@@ -1,6 +1,6 @@
 import { ArrowLeft, BellRing, CheckCheck, Download, Eye, MessageSquareWarning, Send } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, NavLink, useParams } from 'react-router-dom'
 import PayrollReview from '../components/PayrollReview'
 import { ActivityList, StatusBadge, StatusTimeline } from '../components/RunStatus'
 import { maskSsn } from '../lib/compliance'
@@ -13,6 +13,8 @@ import { useChecks } from '../lib/useChecks'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { CompanyProvider, useStore } from '../store'
+import History from './History'
+import Taxes from './Taxes'
 
 function Review() {
   const { t, locale } = usePrefs()
@@ -76,7 +78,7 @@ function Review() {
           </>
         )
       case 'processed':
-        return <p>{t('처리 완료. 고객 포털에 급여명세서가 공개되었어요.', 'Processed. Pay stubs are now visible in the client portal.')}</p>
+        return <p>{t('처리 완료 — 직접입금 예약, 인쇄 수표 준비, 급여명세서 이메일 발송, IRS 예치 일정 등록까지 끝났어요. 세금·신고 탭에서 납부를 처리하세요.', 'Processed — deposits scheduled, checks printed, stubs emailed, and the IRS deposit queued. Pay it from the Taxes tab.')}</p>
     }
   })()
 
@@ -96,6 +98,12 @@ function Review() {
         </div>
         <button className="btn" onClick={exportCsv}><Download size={16} aria-hidden /> {t('CSV 내보내기', 'Export CSV')}</button>
       </header>
+      {(['form8655', 'twcAgent', 'bankDebit'] as const).some((k) => company.authorizations?.[k] !== 'signed') && (
+        <div className="banner warn">
+          {t(`위임 서명 미완료: ${[company.authorizations?.form8655 !== 'signed' && 'Form 8655', company.authorizations?.twcAgent !== 'signed' && 'TWC 대리인', company.authorizations?.bankDebit !== 'signed' && '계좌 인출'].filter(Boolean).join(', ')} — 서명 전에는 대리 신고·납부를 할 수 없어요.`,
+            `Authorizations missing: ${[company.authorizations?.form8655 !== 'signed' && 'Form 8655', company.authorizations?.twcAgent !== 'signed' && 'TWC agent', company.authorizations?.bankDebit !== 'signed' && 'bank debit'].filter(Boolean).join(', ')} — filing and payments are blocked until signed.`)}
+        </div>
+      )}
 
       <div className="review-top">
         <section className="card status-card">
@@ -125,13 +133,23 @@ function Review() {
   )
 }
 
-export default function FirmReview() {
+/** 회계법인: 고객사 화면 (이번 회차 검토 / 세금·신고 / 급여 내역) */
+export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes' | 'history' }) {
+  const { t } = usePrefs()
   const { companyId } = useParams()
   const { companies } = usePortal()
-  if (!companies.some((c) => c.company.id === companyId)) return <div className="page"><div className="card empty">Not found</div></div>
+  const data = companies.find((c) => c.company.id === companyId)
+  if (!data) return <div className="page"><div className="card empty">Not found</div></div>
+  const base = `/firm/c/${companyId}`
   return (
     <CompanyProvider key={companyId} companyId={companyId!}>
-      <Review />
+      <nav className="firm-tabs" aria-label={data.company.dba}>
+        <strong>{data.company.dba}</strong>
+        <NavLink to={base} end>{t('이번 회차 검토', 'This payroll')}</NavLink>
+        <NavLink to={`${base}/taxes`}>{t('세금·신고', 'Taxes & filings')}</NavLink>
+        <NavLink to={`${base}/history`}>{t('급여 내역', 'History')}</NavLink>
+      </nav>
+      {tab === 'review' ? <Review /> : tab === 'taxes' ? <Taxes /> : <History />}
     </CompanyProvider>
   )
 }
