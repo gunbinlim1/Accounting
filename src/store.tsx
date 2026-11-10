@@ -1,153 +1,184 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
 import { companySchedule } from './config/payrollConfig'
 import { defaultTimeFor } from './config/restaurantRoles'
-import { sampleEmployees } from './data/sampleEmployees'
-import { calculatePayroll, effectiveEmployee } from './lib/payroll'
-import { nextPayDate, parseISODate, previousPayDate, toISODate } from './lib/schedule'
+import { computeResults } from './lib/compute'
+import { effectiveEmployee } from './lib/payroll'
+import { parseISODate, subtractBusinessDays } from './lib/schedule'
 import { ytdGrossFor } from './lib/ytd'
-import type { Employee, PayRun, PayrollResult, TimeEntry } from './types'
+import { currentPayDate, usePortal } from './portal'
+import type {
+  ActivityEvent, Company, CompanyData, CurrentRun, Employee, PayRun, PayrollResult, RunStatus, TimeEntry,
+} from './types'
 
-const STORAGE_KEY = 'payroll-restaurant-tx-v1'
+const emptyTime: TimeEntry = { regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }
 
-interface State {
+/** 화면에 보여 줄 급여 자료 (제출 후에는 제출 시점 스냅샷) */
+export interface RunView {
+  employees: Employee[]
+  time: Record<string, TimeEntry>
+  results: PayrollResult[]
+}
+
+interface Store {
+  company: Company
   employees: Employee[]
   time: Record<string, TimeEntry>
   runs: PayRun[]
-}
-
-const emptyTime: TimeEntry = { regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }
-const defaultTime = (e: Employee): TimeEntry => defaultTimeFor(e.role)
-
-function computeResults(employees: Employee[], time: Record<string, TimeEntry>, ytd: Record<string, number>): PayrollResult[] {
-  return employees
-    .filter((e) => e.active)
-    .map((employee) => {
-      const g = ytd[employee.id] ?? 0
-      return calculatePayroll({
-        employee: effectiveEmployee(employee, time[employee.id], companySchedule.frequency),
-        payFrequency: companySchedule.frequency,
-        time: time[employee.id] ?? emptyTime,
-        ytd: { gross: g, futaWages: g, sutaWages: g },
-      })
-    })
-}
-
-function initialState(): State {
-  const today = new Date()
-  const employees = sampleEmployees(today)
-  const time = Object.fromEntries(employees.map((e) => [e.id, defaultTime(e)]))
-  const upcoming = nextPayDate(companySchedule.frequency, parseISODate(companySchedule.anchorDate), today)
-  const last = previousPayDate(companySchedule.frequency, upcoming)
-
-  // 직전 회차 기록 (신입 Jenny 제외)
-  const lastEmployees = employees.filter((e) => e.id !== 'EMP-005')
-  const lastRun: PayRun = {
-    id: `run-${toISODate(last)}`,
-    payDate: toISODate(last),
-    approvedAt: last.toISOString(),
-    time: { ...time },
-    results: computeResults(lastEmployees, time, {}),
-  }
-
-  // 이번 회차: 바쁜 2주 + 신입의 첫 급여 (팁이 적어 최저임금 보전 발생)
-  time['EMP-001'] = { regular: 72, overtime: 6, cashTips: 380, cardTips: 1040 }
-  time['EMP-004'] = { regular: 80, overtime: 9, cashTips: 0, cardTips: 0 }
-  time['EMP-005'] = { regular: 30, overtime: 0, cashTips: 15, cardTips: 40 }
-
-  return { employees, time, runs: [lastRun] }
-}
-
-function loadState(): State {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as State
-      if (Array.isArray(parsed.employees) && parsed.time && Array.isArray(parsed.runs)) return parsed
-    }
-  } catch {
-    /* fall through to demo data */
-  }
-  return initialState()
-}
-
-interface Store extends State {
+  activity: ActivityEvent[]
   payDate: string
-  /** 이번 회차 예상 결과 (재직자) */
+  /** 회차 상태 (새 급여 기간이 시작되면 자동으로 draft) */
+  status: RunStatus
+  current: CurrentRun
+  /** 고객이 수정할 수 없는 상태인지 */
+  locked: boolean
+  /** 제출 마감: 지급일 N 영업일 전 오후 3시 */
+  deadline: Date
   results: PayrollResult[]
+  view: RunView
   ytdGross: Record<string, number>
   lastRun?: PayRun
   approvedForPayDate?: PayRun
-  upsertEmployee: (e: Employee) => void
+  upsertEmployee: (e: Employee, actorName?: string) => void
   toggleActive: (id: string) => void
   setTime: (id: string, patch: Partial<TimeEntry>) => void
-  approveRun: () => PayRun
-  resetDemo: () => void
+  updateCompanyInfo: (c: Company, actorName: string) => void
+  submitRun: (actorName: string) => void
+  recallRun: (actorName: string) => void
+  startReview: (actorName: string) => void
+  requestChanges: (actorName: string, note: string) => void
+  markProcessed: (actorName: string) => PayRun
+  sendReminder: (actorName: string) => void
 }
 
 const StoreContext = createContext<Store | null>(null)
 
-export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<State>(loadState)
+let eventSeq = 0
+const event = (actor: ActivityEvent['actor'], actorName: string, kind: ActivityEvent['kind'], ko: string, en: string): ActivityEvent => ({
+  id: `ev-${Date.now()}-${eventSeq++}`,
+  at: new Date().toISOString(),
+  actor,
+  actorName,
+  kind,
+  ko,
+  en,
+})
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    } catch {
-      /* storage unavailable */
+/** 한 고객사의 데이터와 동작을 하위 화면에 제공 */
+export function CompanyProvider({ companyId, children }: { companyId: string; children: ReactNode }) {
+  const { companies, updateCompany } = usePortal()
+  const data = companies.find((c) => c.company.id === companyId)
+  const payDate = useMemo(() => currentPayDate(), [])
+
+  const update = useCallback((fn: (c: CompanyData) => CompanyData) => updateCompany(companyId, fn), [companyId, updateCompany])
+
+  const derived = useMemo(() => {
+    if (!data) return null
+    const status: RunStatus = data.current.payDate === payDate ? data.current.status : 'draft'
+    const ytdGross = ytdGrossFor(data.runs, payDate)
+    const results = computeResults(data.employees, data.time, ytdGross, data.company.sutaRate)
+    const runs = [...data.runs].sort((a, b) => b.payDate.localeCompare(a.payDate))
+    const snapshot = data.current.payDate === payDate ? data.current.snapshot : undefined
+    const view: RunView = snapshot && status !== 'draft' && status !== 'changes_requested'
+      ? snapshot
+      : { employees: data.employees, time: data.time, results }
+    const deadline = subtractBusinessDays(parseISODate(payDate), data.company.cutoffBusinessDays)
+    deadline.setHours(15, 0, 0, 0)
+    return {
+      status,
+      ytdGross,
+      results,
+      runs,
+      view,
+      deadline,
+      lastRun: runs.find((r) => r.payDate < payDate),
+      approvedForPayDate: runs.find((r) => r.payDate === payDate),
+      activity: [...data.activity].sort((a, b) => b.at.localeCompare(a.at)),
     }
-  }, [state])
+  }, [data, payDate])
 
-  const [payDate] = useState(() =>
-    toISODate(nextPayDate(companySchedule.frequency, parseISODate(companySchedule.anchorDate), new Date())),
+  const setStatus = useCallback(
+    (status: RunStatus, ev: ActivityEvent, patch: Partial<CurrentRun> = {}) =>
+      update((c) => ({ ...c, current: { ...c.current, payDate, status, ...patch }, activity: [ev, ...c.activity] })),
+    [update, payDate],
   )
 
-  const ytdGross = useMemo(() => ytdGrossFor(state.runs, payDate), [state.runs, payDate])
-  const results = useMemo(() => computeResults(state.employees, state.time, ytdGross), [state.employees, state.time, ytdGross])
-
-  const sortedRuns = useMemo(() => [...state.runs].sort((a, b) => b.payDate.localeCompare(a.payDate)), [state.runs])
-  const approvedForPayDate = sortedRuns.find((r) => r.payDate === payDate)
-  const lastRun = sortedRuns.find((r) => r.payDate < payDate)
-
-  const upsertEmployee = useCallback((e: Employee) => {
-    setState((s) => {
-      const exists = s.employees.some((x) => x.id === e.id)
-      return {
-        ...s,
-        employees: exists ? s.employees.map((x) => (x.id === e.id ? e : x)) : [...s.employees, e],
-        time: s.time[e.id] ? s.time : { ...s.time, [e.id]: defaultTime(e) },
-      }
-    })
-  }, [])
-
-  const toggleActive = useCallback((id: string) => {
-    setState((s) => ({ ...s, employees: s.employees.map((e) => (e.id === id ? { ...e, active: !e.active } : e)) }))
-  }, [])
-
-  const setTime = useCallback((id: string, patch: Partial<TimeEntry>) => {
-    setState((s) => ({ ...s, time: { ...s.time, [id]: { ...(s.time[id] ?? emptyTime), ...patch } } }))
-  }, [])
-
-  const approveRun = useCallback((): PayRun => {
-    const run: PayRun = { id: `run-${payDate}`, payDate, approvedAt: new Date().toISOString(), time: state.time, results }
-    setState((s) => ({ ...s, runs: [...s.runs.filter((r) => r.payDate !== payDate), run] }))
-    return run
-  }, [payDate, results, state.time])
-
-  const resetDemo = useCallback(() => setState(initialState()), [])
+  if (!data || !derived) return null
 
   const value: Store = {
-    ...state,
-    runs: sortedRuns,
+    company: data.company,
+    employees: data.employees,
+    time: data.time,
+    current: data.current,
     payDate,
-    results,
-    ytdGross,
-    lastRun,
-    approvedForPayDate,
-    upsertEmployee,
-    toggleActive,
-    setTime,
-    approveRun,
-    resetDemo,
+    locked: derived.status === 'submitted' || derived.status === 'in_review' || derived.status === 'processed',
+    ...derived,
+
+    upsertEmployee: (e, actorName) =>
+      update((c) => {
+        const exists = c.employees.some((x) => x.id === e.id)
+        const ev = actorName
+          ? [event('client', actorName, 'employee', exists ? `${e.name} 직원 정보 수정` : `${e.name} 직원 등록`, exists ? `Updated ${e.name}` : `Added employee ${e.name}`)]
+          : []
+        return {
+          ...c,
+          employees: exists ? c.employees.map((x) => (x.id === e.id ? e : x)) : [...c.employees, e],
+          time: c.time[e.id] ? c.time : { ...c.time, [e.id]: defaultTimeFor(e.role) },
+          activity: [...ev, ...c.activity],
+        }
+      }),
+
+    toggleActive: (id) =>
+      update((c) => ({ ...c, employees: c.employees.map((e) => (e.id === id ? { ...e, active: !e.active } : e)) })),
+
+    setTime: (id, patch) =>
+      update((c) => ({ ...c, time: { ...c.time, [id]: { ...(c.time[id] ?? emptyTime), ...patch } } })),
+
+    updateCompanyInfo: (company, actorName) =>
+      update((c) => ({ ...c, company, activity: [event('client', actorName, 'settings', '회사 정보 수정', 'Updated company settings'), ...c.activity] })),
+
+    submitRun: (actorName) => {
+      const overrides = data.employees.filter((e) => e.active && data.time[e.id]?.rate !== undefined).length
+      setStatus(
+        'submitted',
+        event('client', actorName, 'submit',
+          `급여 제출 (${derived.results.length}명${overrides ? `, 시급 변경 ${overrides}건` : ''})`,
+          `Submitted payroll (${derived.results.length} people${overrides ? `, ${overrides} rate change(s)` : ''})`),
+        {
+          submittedAt: new Date().toISOString(),
+          submittedBy: actorName,
+          note: undefined,
+          snapshot: {
+            employees: data.employees.map((e) => effectiveEmployee(e, data.time[e.id], companySchedule.frequency)),
+            time: { ...data.time },
+            results: derived.results,
+          },
+        },
+      )
+    },
+
+    recallRun: (actorName) =>
+      setStatus('draft', event('client', actorName, 'recall', '제출 취소 (수정을 위해)', 'Recalled submission to edit'), { snapshot: undefined }),
+
+    startReview: (actorName) =>
+      setStatus('in_review', event('firm', actorName, 'review', '검토 시작', 'Started review')),
+
+    requestChanges: (actorName, note) =>
+      setStatus('changes_requested', event('firm', actorName, 'changes', `수정 요청: ${note}`, `Requested changes: ${note}`), { note, snapshot: undefined }),
+
+    markProcessed: (actorName) => {
+      const snap = data.current.snapshot ?? { time: data.time, results: derived.results }
+      const run: PayRun = { id: `run-${payDate}`, payDate, approvedAt: new Date().toISOString(), time: snap.time, results: snap.results }
+      update((c) => ({
+        ...c,
+        runs: [...c.runs.filter((r) => r.payDate !== payDate), run],
+        current: { ...c.current, payDate, status: 'processed' },
+        activity: [event('firm', actorName, 'processed', '급여 처리 완료 — 급여명세서 발행', 'Payroll processed — pay stubs issued'), ...c.activity],
+      }))
+      return run
+    },
+
+    sendReminder: (actorName) =>
+      update((c) => ({ ...c, activity: [event('firm', actorName, 'reminder', '제출 마감 알림 전송', 'Sent a deadline reminder'), ...c.activity] })),
   }
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
@@ -155,6 +186,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
 export function useStore(): Store {
   const ctx = useContext(StoreContext)
-  if (!ctx) throw new Error('useStore must be used inside StoreProvider')
+  if (!ctx) throw new Error('useStore must be used inside CompanyProvider')
   return ctx
 }
+
+export type { Store }

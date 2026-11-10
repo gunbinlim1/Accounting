@@ -11,6 +11,7 @@ import { citizenshipLabel, filingLabel, payLabel, roleLabel } from '../lib/label
 import { calculatePayroll } from '../lib/payroll'
 import { parseISODate, toISODate } from '../lib/schedule'
 import { segmentsOf } from '../lib/segments'
+import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
 import type { CitizenshipStatus, Employee, FilingStatus, PayType, RoleId } from '../types'
@@ -175,7 +176,8 @@ export default function EmployeeForm() {
   const { t, locale } = usePrefs()
   const { id } = useParams()
   const navigate = useNavigate()
-  const { employees, upsertEmployee } = useStore()
+  const { employees, upsertEmployee, company } = useStore()
+  const { session } = usePortal()
   const existing = employees.find((e) => e.id === id)
   const [d, setD] = useState<Draft>(() => (existing ? fromEmployee(existing) : newDraft()))
   const [step, setStep] = useState(0)
@@ -249,7 +251,7 @@ export default function EmployeeForm() {
   }, [d, newId])
 
   const save = () => {
-    upsertEmployee(toEmployee(d, d.id ?? newId))
+    upsertEmployee(toEmployee(d, d.id ?? newId), session?.name ?? company.ownerName)
     navigate('/employees')
   }
 

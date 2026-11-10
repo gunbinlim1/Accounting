@@ -1,22 +1,26 @@
 import {
-  ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, CircleCheck, HandCoins, Info, OctagonAlert, PartyPopper, Printer, RotateCcw, Search, TriangleAlert,
+  ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, Clock, Info, Lock, MessageSquareWarning, OctagonAlert, Printer, RotateCcw, Search, Send, TriangleAlert, Undo2,
 } from 'lucide-react'
 import { Fragment, useMemo, useState, type KeyboardEvent } from 'react'
-import { Link } from 'react-router-dom'
 import CheckList from '../components/CheckList'
 import PayStub from '../components/PayStub'
+import PayrollReview from '../components/PayrollReview'
+import { StatusBadge, StatusTimeline } from '../components/RunStatus'
 import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import { defaultTimeFor, receivesTips } from '../config/restaurantRoles'
 import type { Check as CheckItem } from '../lib/checks'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
 import { roleLabel } from '../lib/labels'
 import { baseRateForEntry, effectiveEmployee, sumResults, tippedOvertimeRate } from '../lib/payroll'
-import { daysBetween, parseISODate, previousPayDate } from '../lib/schedule'
+import { cashOutOf, timeLeft } from '../lib/runStatus'
+import { parseISODate, previousPayDate } from '../lib/schedule'
 import { useChecks } from '../lib/useChecks'
+import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
-import type { Employee, PayRun, TimeEntry } from '../types'
+import type { Employee, TimeEntry } from '../types'
 
+const PERIODS = periodsPerYear[companySchedule.frequency]
 
 /** 표 안의 숫자 입력 — Enter/↑/↓로 같은 열의 위아래 칸으로 이동 */
 function CellInput({ value, onChange, money, row, col, label, disabled }: {
@@ -35,51 +39,16 @@ function CellInput({ value, onChange, money, row, col, label, disabled }: {
     <span className={`cell-input${money ? ' money' : ''}`}>
       {money && <span aria-hidden>$</span>}
       <input
-        type="number"
-        inputMode="decimal"
-        min={0}
-        step={money ? '0.01' : '0.25'}
-        value={value === 0 ? '' : value}
-        placeholder="0"
-        aria-label={label}
-        data-cell={`${row}-${col}`}
-        onFocus={(e) => e.target.select()}
-        onKeyDown={move}
+        type="number" inputMode="decimal" min={0} step={money ? '0.01' : '0.25'}
+        value={value === 0 ? '' : value} placeholder="0" aria-label={label} data-cell={`${row}-${col}`}
+        onFocus={(e) => e.target.select()} onKeyDown={move}
         onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
       />
     </span>
   )
 }
 
-const PERIODS = periodsPerYear[companySchedule.frequency]
-
-/** 검토 화면: 이번 회차에 적용된 시급·연봉을 크게 표시. 아래 줄에 실제 근무시간 */
-function RateCell({ e, entry }: { e: Employee; entry?: TimeEntry }) {
-  const { t } = usePrefs()
-  const eff = effectiveEmployee(e, entry, companySchedule.frequency)
-  const salary = e.payType === 'salary'
-  const changed = entry?.rate !== undefined && eff.rate !== e.rate
-  const sub = salary
-    ? t(`회당 ${formatCurrency(eff.rate / PERIODS)}`, `${formatCurrency(eff.rate / PERIODS)} per check`)
-    : `${(entry?.regular ?? 0) + (entry?.overtime ?? 0)}h${entry?.overtime ? ` · OT ${entry.overtime}h` : ''}${e.payType === 'tipped' ? t(' · + 팁', ' · + tips') : ''}`
-  return (
-    <td className="num rate-cell" data-label={t('급여 기준', 'Pay rate')}>
-      <span className="rate-main">
-        {salary ? formatCurrencyWhole(eff.rate) : formatCurrency(eff.rate)}
-        <small>{salary ? t('/년', '/yr') : '/h'}</small>
-      </span>
-      <span className="rate-sub">
-        {sub}
-        {changed && <span className="tag info">{t('이번 회차 변경', 'Changed this run')}</span>}
-      </span>
-    </td>
-  )
-}
-
-/**
- * 입력 화면: 이번 회차 시급(또는 연봉 직원의 회당 급여)을 직접 입력.
- * 연봉 직원은 입력한 회당 금액으로 연봉을 계산해 보여 줌.
- */
+/** 이번 회차 시급(또는 연봉 직원의 회당 급여) 입력. 연봉 직원은 연봉을 계산해 보여 줌 */
 function RateInputCell({ e, entry, row, onChange, onSaveDefault }: {
   e: Employee; entry?: TimeEntry; row: number; onChange: (rate: number | undefined) => void; onSaveDefault: () => void
 }) {
@@ -98,11 +67,7 @@ function RateInputCell({ e, entry, row, onChange, onSaveDefault }: {
       <span className={`rate-edit${changed ? ' changed' : ''}`}>
         <span aria-hidden>$</span>
         <input
-          type="number"
-          inputMode="decimal"
-          min={0}
-          step="0.01"
-          value={value}
+          type="number" inputMode="decimal" min={0} step="0.01" value={value}
           aria-label={`${e.name} ${salary ? t('회당 급여', 'pay per check') : t('시급', 'hourly rate')}`}
           data-cell={`${row}-rate`}
           onFocus={(ev) => ev.target.select()}
@@ -141,27 +106,27 @@ const sevIcon = {
 
 export default function PayrollRun() {
   const { t, lang, locale } = usePrefs()
-  const { employees, time, setTime, results, payDate, lastRun, approveRun, approvedForPayDate, upsertEmployee } = useStore()
+  const { session } = usePortal()
+  const store = useStore()
+  const { employees, time, setTime, results, payDate, lastRun, upsertEmployee, status, locked, current, deadline, view, company } = store
   const checks = useChecks()
   const [step, setStep] = useState<1 | 2>(1)
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState<string | null>(null)
-  // 넓은 화면에서는 펼치고, 휴대폰에서는 접어서 시작 (차단 문제가 있으면 항상 펼침)
-  const [alertsPref, setShowAlerts] = useState<boolean | null>(null)
-  const [done, setDone] = useState<PayRun | null>(null)
-  const [today] = useState(() => new Date())
+  const [justSubmitted, setJustSubmitted] = useState(false)
+  const [now] = useState(() => new Date())
+  const me = session?.name ?? company.ownerName
 
   const active = employees.filter((e) => e.active)
   const pay = parseISODate(payDate)
   const periodStart = previousPayDate(companySchedule.frequency, pay)
-  const daysLeft = daysBetween(today, pay)
+  const due = timeLeft(deadline, now, t)
   const totals = sumResults(results)
-  const cashOut = totals.net + totals.federalDeposit + totals.pretax + totals.futa + totals.suta
   const blocking = checks.filter((c) => c.severity === 'critical').length
   const resultOf = (id: string) => results.find((r) => r.employeeId === id)!
   const eff = (e: Employee) => effectiveEmployee(e, time[e.id], companySchedule.frequency)
   const saveRateAsDefault = (e: Employee) => {
-    upsertEmployee({ ...e, rate: eff(e).rate })
+    upsertEmployee({ ...e, rate: eff(e).rate }, me)
     setTime(e.id, { rate: undefined })
   }
 
@@ -190,82 +155,108 @@ export default function PayrollRun() {
   const header = (
     <header className="run-head">
       <div>
-        <p className="eyebrow">{t('정기 급여', 'Regular payroll')} · {t('텍사스', 'Texas')}</p>
-        <h1>{t('급여 실행', 'Run payroll')}</h1>
+        <p className="eyebrow">{company.dba} · {t('정기 급여', 'Regular payroll')}</p>
+        <h1>{t('급여 실행', 'Run payroll')} <StatusBadge status={status} /></h1>
         <div className="run-meta">
           <span>
             <CalendarDays size={15} aria-hidden /> {t('급여 기간', 'Pay period')}{' '}
-            <strong>
-              {formatDate(periodStart, locale, { month: 'short', day: 'numeric' })} – {formatDate(pay, locale, { month: 'short', day: 'numeric' })}
-            </strong>
+            <strong>{formatDate(periodStart, locale, { month: 'short', day: 'numeric' })} – {formatDate(pay, locale, { month: 'short', day: 'numeric' })}</strong>
           </span>
-          <span>
-            {t('지급일', 'Pay date')} <strong>{formatDate(pay, locale)}</strong>
-          </span>
-          <span className={daysLeft <= 2 ? 'urgent' : ''}>
-            {daysLeft === 0 ? t('오늘 지급', 'Pays today') : t(`${daysLeft}일 남음`, `${daysLeft} days left`)}
-          </span>
+          <span>{t('지급일', 'Pay date')} <strong>{formatDate(pay, locale)}</strong></span>
+          {!locked && (
+            <span className={due.overdue || due.urgent ? 'urgent' : ''}>
+              <Clock size={15} aria-hidden /> {t('제출 마감', 'Submit by')}{' '}
+              <strong>{formatDate(deadline, locale, { month: 'short', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit' })}</strong> · {due.text}
+            </span>
+          )}
         </div>
       </div>
-      <ol className="run-steps" aria-label={t('진행 단계', 'Progress')}>
-        {[t('근무·팁 입력', 'Hours & tips'), t('검토 및 제출', 'Review & submit')].map((label, i) => {
-          const n = (i + 1) as 1 | 2
-          return (
-            <li key={label} className={n === step ? 'current' : n < step ? 'done' : ''}>
-              <button type="button" disabled={n > step} onClick={() => n < step && setStep(n)}>
-                <span className="dot">{n < step ? <Check size={12} /> : n}</span>
-                {label}
-              </button>
-            </li>
-          )
-        })}
-      </ol>
+      {!locked && (
+        <ol className="run-steps" aria-label={t('진행 단계', 'Progress')}>
+          {[t('근무·팁 입력', 'Hours & tips'), t('검토 및 제출', 'Review & submit')].map((label, i) => {
+            const n = (i + 1) as 1 | 2
+            return (
+              <li key={label} className={n === step ? 'current' : n < step ? 'done' : ''}>
+                <button type="button" disabled={n > step} onClick={() => n < step && setStep(n)}>
+                  <span className="dot">{n < step ? <Check size={12} /> : n}</span>
+                  {label}
+                </button>
+              </li>
+            )
+          })}
+        </ol>
+      )}
     </header>
   )
 
-  /* ───────── 완료 ───────── */
-  if (done) {
-    const s = sumResults(done.results)
+  const firmNote = status === 'changes_requested' && current.note && (
+    <div className="firm-note">
+      <MessageSquareWarning size={20} aria-hidden />
+      <div>
+        <strong>{t('회계법인 수정 요청', 'Changes requested by your CPA')}</strong>
+        <p>{current.note}</p>
+      </div>
+    </div>
+  )
+
+  /* ───────── 제출 후 (잠김) ───────── */
+  if (locked) {
+    const s = sumResults(view.results)
     return (
-      <div className="page">
-        <section className="card success">
-          <PartyPopper size={40} className="success-icon" aria-hidden />
-          <h1>{t('급여가 제출되었습니다', 'Payroll submitted')}</h1>
-          <p className="lead">
-            {t(
-              `${formatDate(pay, locale)}에 ${done.results.length}명에게 ${formatCurrency(s.net)}이 입금됩니다.`,
-              `${done.results.length} people receive ${formatCurrency(s.net)} on ${formatDate(pay, locale)}.`,
-            )}
+      <div className="page run-page">
+        {header}
+        <section className="card status-card">
+          <StatusTimeline status={status} submittedAt={current.submittedAt} />
+          {justSubmitted && status === 'submitted' && (
+            <div className="banner">
+              <Check size={18} aria-hidden />
+              {t('제출 완료! 회계법인이 검토를 시작하면 이 화면과 홈에서 알려 드려요.', 'Submitted! You’ll see updates here and on Home as your CPA reviews it.')}
+            </div>
+          )}
+          <p className="status-msg">
+            <Lock size={16} aria-hidden />
+            {status === 'processed'
+              ? t(`처리 완료 — ${formatDate(pay, locale)}에 ${view.results.length}명에게 ${formatCurrency(s.net)}이 입금됩니다.`, `Processed — ${formatCurrency(s.net)} goes to ${view.results.length} people on ${formatDate(pay, locale)}.`)
+              : status === 'in_review'
+                ? t('회계법인이 검토 중이라 수정할 수 없어요. 고칠 내용이 있으면 회계법인에 연락해 주세요.', 'Your CPA is reviewing this run, so it’s locked. Contact them for changes.')
+                : t('제출되어 잠겨 있어요. 회계법인이 검토를 시작하기 전까지는 제출을 취소하고 고칠 수 있어요.', 'Submitted and locked. You can recall it to edit until your CPA starts reviewing.')}
           </p>
-          <div className="todo">
-            <h2>{t('다음에 할 일', 'Next steps')}</h2>
-            <ul>
-              <li><Check size={16} aria-hidden /> {t(`EFTPS로 IRS에 ${formatCurrency(s.federalDeposit)} 예치`, `Deposit ${formatCurrency(s.federalDeposit)} to the IRS via EFTPS`)}</li>
-              <li><Check size={16} aria-hidden /> {t(`TWC ${formatCurrency(s.suta)} · FUTA ${formatCurrency(s.futa)} 적립`, `Accrue TWC ${formatCurrency(s.suta)} · FUTA ${formatCurrency(s.futa)}`)}</li>
-              {s.uncollectedFica > 0 && (
-                <li><Check size={16} aria-hidden /> {t(`미징수 FICA ${formatCurrency(s.uncollectedFica)} 기록 (W-2 Box 12 A/B)`, `Record ${formatCurrency(s.uncollectedFica)} uncollected FICA (W-2 Box 12 A/B)`)}</li>
-              )}
-              <li><Check size={16} aria-hidden /> {t('직원에게 급여명세서 전달', 'Share pay stubs with employees')}</li>
-            </ul>
-          </div>
-          <div className="row gap">
-            <button className="btn" onClick={() => window.print()}>
-              <Printer size={18} aria-hidden /> {t('급여명세서 인쇄', 'Print pay stubs')}
-            </button>
-            <Link to="/" className="btn primary">{t('홈으로', 'Back home')}</Link>
-          </div>
         </section>
-        <section className="print-stubs">
-          {done.results.map((r) => {
-            const e = employees.find((x) => x.id === r.employeeId)!
-            return (
-              <div key={r.employeeId} className="print-stub">
-                <h2>{e.name} · {formatDate(pay, locale)}</h2>
-                <PayStub employee={effectiveEmployee(e, done.time[e.id], companySchedule.frequency)} result={r} time={done.time[e.id]} />
-              </div>
-            )
-          })}
-        </section>
+
+        <PayrollReview view={view} checks={checks} />
+
+        {status === 'processed' && (
+          <section className="print-stubs">
+            {view.results.map((r) => {
+              const e = view.employees.find((x) => x.id === r.employeeId)!
+              return (
+                <div key={r.employeeId} className="print-stub">
+                  <h2>{e.name} · {formatDate(pay, locale)}</h2>
+                  <PayStub employee={e} result={r} time={view.time[e.id]} />
+                </div>
+              )
+            })}
+          </section>
+        )}
+
+        <div className="action-bar">
+          <div className="action-bar-inner">
+            {status === 'submitted' && (
+              <button className="btn" onClick={() => { store.recallRun(me); setStep(1); setJustSubmitted(false) }}>
+                <Undo2 size={18} aria-hidden /> {t('제출 취소하고 수정', 'Recall to edit')}
+              </button>
+            )}
+            <div className="action-total">
+              <span className="muted small">{t('회사 총 출금액', 'Total cash out')}</span>
+              <strong>{formatCurrency(cashOutOf(view.results))}</strong>
+            </div>
+            {status === 'processed' && (
+              <button className="btn primary lg" onClick={() => window.print()}>
+                <Printer size={18} aria-hidden /> {t('급여명세서 인쇄', 'Print pay stubs')}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     )
   }
@@ -276,12 +267,7 @@ export default function PayrollRun() {
     return (
       <div className="page run-page">
         {header}
-        {approvedForPayDate && (
-          <div className="banner">
-            <CircleCheck size={18} aria-hidden />
-            {t('이번 회차는 이미 제출되었습니다. 다시 제출하면 기존 기록을 덮어씁니다.', 'This run was already submitted. Submitting again replaces it.')}
-          </div>
-        )}
+        {firmNote}
 
         <section className="card table-card">
           <div className="table-toolbar">
@@ -291,14 +277,8 @@ export default function PayrollRun() {
             </div>
             <div className="toolbar-actions">
               <span className="muted small">{t('모두 적용:', 'Apply to all:')}</span>
-              {lastRun && (
-                <button className="chip" onClick={() => applyAll((e) => lastRun.time[e.id])}>
-                  {t('지난번과 동일', 'Same as last')}
-                </button>
-              )}
-              <button className="chip" onClick={() => applyAll((e) => defaultTimeFor(e.role))}>
-                {t('직무 기본값', 'Role defaults')}
-              </button>
+              {lastRun && <button className="chip" onClick={() => applyAll((e) => lastRun.time[e.id])}>{t('지난번과 동일', 'Same as last')}</button>}
+              <button className="chip" onClick={() => applyAll((e) => defaultTimeFor(e.role))}>{t('직무 기본값', 'Role defaults')}</button>
               <button className="chip" onClick={() => applyAll(() => ({ regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }))}>
                 <RotateCcw size={13} aria-hidden /> {t('비우기', 'Clear')}
               </button>
@@ -340,9 +320,7 @@ export default function PayrollRun() {
                                 {e.name}
                                 {worst && worst !== 'info' && <span className={`flag ${worst}`} title={lang === 'ko' ? issues[0].ko : issues[0].en}>{sevIcon[worst]}</span>}
                               </strong>
-                              <span className="muted small">
-                                {roleLabel(e.role, t)}
-                              </span>
+                              <span className="muted small">{roleLabel(e.role, t)}</span>
                             </div>
                           </div>
                         </td>
@@ -433,132 +411,19 @@ export default function PayrollRun() {
     )
   }
 
-  /* ───────── 2단계: 검토 및 제출 ───────── */
-  const issueCount = checks.filter((c) => c.severity !== 'info').length
-  const showAlerts = alertsPref ?? (blocking > 0 || typeof matchMedia === 'undefined' || matchMedia('(min-width: 761px)').matches)
+  /* ───────── 2단계: 검토 및 회계법인 제출 ───────── */
   return (
     <div className="page run-page">
       {header}
-
-      {checks.length > 0 && (
-        <section className={`card alert-card ${blocking ? 'crit' : issueCount ? 'warn' : 'info'}`}>
-          <button className="alert-head" onClick={() => setShowAlerts(!showAlerts)} aria-expanded={showAlerts}>
-            {blocking ? <OctagonAlert size={18} aria-hidden /> : issueCount ? <TriangleAlert size={18} aria-hidden /> : <Info size={18} aria-hidden />}
-            <strong>
-              {blocking
-                ? t(`제출 전에 해결해야 할 문제 ${blocking}건`, `${blocking} issue(s) must be fixed before submitting`)
-                : t(`확인해 볼 항목 ${checks.length}건`, `${checks.length} item(s) to look at`)}
-            </strong>
-            <ChevronDown size={18} className={`chev${showAlerts ? ' up' : ''}`} aria-hidden />
-          </button>
-          {showAlerts && <CheckList checks={checks} />}
-        </section>
-      )}
-
-      <section className="card total-card">
-        <div className="total-main">
-          <span className="eyebrow">{t('회사 총 출금액', 'Total cash out')}</span>
-          <div className="total-big">{formatCurrency(cashOut)}</div>
-          <p className="muted small">
-            {t(`${active.length}명 · 지급일 ${formatDate(pay, locale)}`, `${active.length} people · paid ${formatDate(pay, locale)}`)}
-          </p>
-        </div>
-        <dl className="total-break">
-          <div><dt><span className="sw s1" />{t('직원 급여 입금', 'Employee paychecks')}</dt><dd>{formatCurrency(totals.net)}</dd></div>
-          <div><dt><span className="sw s3" />{t('IRS (연방세 + FICA 양쪽)', 'IRS (federal + both FICA halves)')}</dt><dd>{formatCurrency(totals.federalDeposit)}</dd></div>
-          <div><dt><span className="sw s4" />{t('TWC + FUTA (회사 부담)', 'TWC + FUTA (employer)')}</dt><dd>{formatCurrency(totals.suta + totals.futa)}</dd></div>
-          <div><dt><span className="sw s2" />{t('401(k) 적립', '401(k)')}</dt><dd>{formatCurrency(totals.pretax)}</dd></div>
-        </dl>
-      </section>
-
-      <section className="stat-strip">
-        <div><span>{t('총급여 (팁 포함)', 'Gross pay')}</span><strong>{formatCurrency(totals.gross)}</strong></div>
-        <div><span>{t('직원 세금·공제', 'Employee taxes & deductions')}</span><strong>{formatCurrency(totals.federal + totals.socialSecurity + totals.medicare + totals.pretax)}</strong></div>
-        <div><span>{t('회사 세금', 'Employer taxes')}</span><strong>{formatCurrency(totals.employerTaxes)}</strong></div>
-        <div><span>{t('현금 팁 (이미 지급됨)', 'Cash tips (already paid)')}</span><strong>{formatCurrency(totals.cashTips)}</strong></div>
-      </section>
-
-      <section className="card table-card">
-        <div className="table-toolbar">
-          <h2>{t('직원별 상세', 'Employee details')}</h2>
-          <span className="muted small">{t('행을 누르면 급여명세서를 볼 수 있어요', 'Click a row to see the pay stub')}</span>
-        </div>
-        <div className="table-scroll">
-          <table className="run-table review">
-            <thead>
-              <tr>
-                <th>{t('직원', 'Employee')}</th>
-                <th className="num">{t('급여 기준', 'Pay rate')}</th>
-                <th className="num">{t('총급여', 'Gross')}</th>
-                <th className="num">{t('직원 세금', 'Employee taxes')}</th>
-                <th className="num">{t('공제·현금 팁', 'Deductions & cash tips')}</th>
-                <th className="num">{t('입금액', 'Net pay')}</th>
-                <th className="num">{t('회사 세금', 'Employer taxes')}</th>
-                <th aria-label={t('상세', 'Details')} />
-              </tr>
-            </thead>
-            <tbody>
-              {active.map((e) => {
-                const r = resultOf(e.id)
-                const isOpen = open === e.id
-                return (
-                  <Fragment key={e.id}>
-                    <tr className={`clickable${isOpen ? ' open' : ''}`} onClick={() => setOpen(isOpen ? null : e.id)}>
-                      <td data-label={t('직원', 'Employee')}>
-                        <div className="emp-cell">
-                          <span className="avatar sm">{initials(e.name)}</span>
-                          <div>
-                            <strong>{e.name}</strong>
-                            <span className="muted small">{roleLabel(e.role, t)}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <RateCell e={e} entry={time[e.id]} />
-                      <td className="num" data-label={t('총급여', 'Gross')}>{formatCurrency(r.grossPay)}</td>
-                      <td className="num" data-label={t('직원 세금', 'Employee taxes')}>{formatCurrency(r.federalWithholding + r.socialSecurity + r.medicare)}</td>
-                      <td className="num" data-label={t('공제·현금 팁', 'Deductions & cash tips')}>{formatCurrency(r.pretaxDeductions + r.cashTips)}</td>
-                      <td className="num" data-label={t('입금액', 'Net pay')}><strong>{formatCurrency(r.netPay)}</strong></td>
-                      <td className="num muted" data-label={t('회사 세금', 'Employer taxes')}>{formatCurrency(r.employerTaxes)}</td>
-                      <td className="expand-cell"><ChevronDown size={18} className="chev" aria-hidden /></td>
-                    </tr>
-                    {isOpen && (
-                      <tr className="detail-row">
-                        <td colSpan={8}>
-                          <PayStub employee={eff(e)} result={r} time={time[e.id]} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                )
-              })}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td>{t('합계', 'Total')}</td>
-                <td />
-                <td className="num">{formatCurrency(totals.gross)}</td>
-                <td className="num">{formatCurrency(totals.federal + totals.socialSecurity + totals.medicare)}</td>
-                <td className="num">{formatCurrency(totals.pretax + totals.cashTips)}</td>
-                <td className="num"><strong>{formatCurrency(totals.net)}</strong></td>
-                <td className="num">{formatCurrency(totals.employerTaxes)}</td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </section>
-
-      {totals.tipCredit45B > 0 && (
-        <div className="insight">
-          <HandCoins size={20} aria-hidden />
-          <p>
-            {t(
-              `이번 회차 팁에 낸 회사 FICA 중 약 ${formatCurrency(totals.tipCredit45B)}는 45B 팁 크레딧(Form 8846)으로 돌려받을 수 있어요.`,
-              `About ${formatCurrency(totals.tipCredit45B)} of employer FICA on this run's tips can come back as the 45B tip credit (Form 8846).`,
-            )}
-          </p>
-        </div>
-      )}
+      {firmNote}
+      <PayrollReview view={view} checks={checks} />
+      <p className="muted small submit-note">
+        <Info size={14} aria-hidden />
+        {t(
+          `제출하면 ${company.dba}의 이번 회차 자료가 회계법인으로 전달되고 잠깁니다. 회계법인이 검토 후 처리하면 급여명세서가 발행돼요.`,
+          `Submitting sends this run to your CPA and locks it. Pay stubs are issued once they process it.`,
+        )}
+      </p>
 
       <div className="action-bar">
         <div className="action-bar-inner">
@@ -567,11 +432,15 @@ export default function PayrollRun() {
           </button>
           <div className="action-total">
             <span className="muted small">{t('회사 총 출금액', 'Total cash out')}</span>
-            <strong>{formatCurrency(cashOut)}</strong>
+            <strong>{formatCurrency(cashOutOf(results))}</strong>
           </div>
-          <button className="btn primary lg" disabled={blocking > 0} onClick={() => { setDone(approveRun()); window.scrollTo({ top: 0 }) }}>
-            <Check size={18} aria-hidden />
-            {blocking > 0 ? t('문제 해결 후 제출', 'Fix issues to submit') : t('급여 제출', 'Submit payroll')}
+          <button
+            className="btn primary lg"
+            disabled={blocking > 0}
+            onClick={() => { store.submitRun(me); setJustSubmitted(true); window.scrollTo({ top: 0 }) }}
+          >
+            <Send size={18} aria-hidden />
+            {blocking > 0 ? t('문제 해결 후 제출', 'Fix issues to submit') : status === 'changes_requested' ? t('회계법인에 다시 제출', 'Resubmit to CPA') : t('회계법인에 제출', 'Submit to CPA')}
           </button>
         </div>
       </div>

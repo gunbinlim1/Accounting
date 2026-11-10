@@ -31,7 +31,7 @@ export const baseRateForEntry = (e: Employee, frequency: PayFrequency): number =
 /** 상한까지 남은 과세 대상 금액 */
 const underBase = (amount: number, ytd: number, base: number) => Math.min(amount, Math.max(0, base - ytd))
 
-export function calculatePayroll({ employee: e, payFrequency, time = {}, ytd = {} }: PayrollInput): PayrollResult {
+export function calculatePayroll({ employee: e, payFrequency, time = {}, ytd = {}, sutaRate = cfg.sutaRate }: PayrollInput): PayrollResult {
   const regular = pos(time.regular)
   const overtime = pos(time.overtime)
   const cashTips = roundCents(pos(time.cashTips))
@@ -93,7 +93,7 @@ export function calculatePayroll({ employee: e, payFrequency, time = {}, ytd = {
   const employerSocialSecurity = ssDue
   const employerMedicare = roundCents(grossPay * cfg.medicareRate)
   const futa = roundCents(underBase(grossPay, pos(ytd.futaWages), cfg.futaWageBase) * cfg.futaRate)
-  const suta = roundCents(underBase(grossPay, pos(ytd.sutaWages), cfg.sutaWageBase) * cfg.sutaRate)
+  const suta = roundCents(underBase(grossPay, pos(ytd.sutaWages), cfg.sutaWageBase) * sutaRate)
   const employerTaxes = roundCents(employerSocialSecurity + employerMedicare + futa + suta)
   const employerCost = roundCents(regularPay + overtimePay + tipMakeUp + employerTaxes)
 

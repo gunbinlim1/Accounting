@@ -1,16 +1,29 @@
 import {
-  CirclePlay, Languages, LayoutDashboard, Moon, RotateCcw, Search, SlidersHorizontal, Sun, UserPlus, Users,
+  Building2, CirclePlay, Inbox, Languages, LayoutDashboard, LogOut, Moon, RotateCcw, Search, SlidersHorizontal, Sun, UserPlus, Users,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { firmAccount } from '../data/demoPortal'
+import { statusTone } from '../lib/runStatus'
+import { currentPayDate, usePortal } from '../portal'
 import { usePrefs } from '../prefs'
-import { useStore } from '../store'
+import { CompanyProvider, useStore } from '../store'
 import CommandPalette, { type Command } from './CommandPalette'
 
-export default function Layout() {
+interface NavItem {
+  to: string
+  label: string
+  icon: ReactNode
+  end?: boolean
+  mobile?: boolean
+}
+
+/** 공통 화면 틀: 사이드바, 모바일 상단·하단 바, 명령 팔레트 */
+function Shell({ nav, identity, extraNav, commands, mobileTitle }: {
+  nav: NavItem[]; identity: ReactNode; extraNav?: ReactNode; commands: Command[]; mobileTitle: string
+}) {
   const { t, lang, toggleLang, theme, toggleTheme } = usePrefs()
-  const { employees, resetDemo } = useStore()
-  const navigate = useNavigate()
+  const { logout, resetDemo } = usePortal()
   const [paletteOpen, setPaletteOpen] = useState(false)
 
   useEffect(() => {
@@ -24,32 +37,13 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const nav = [
-    { to: '/', label: t('홈', 'Home'), icon: <LayoutDashboard size={20} />, end: true },
-    { to: '/run', label: t('급여 실행', 'Run payroll'), icon: <CirclePlay size={20} /> },
-    { to: '/employees', label: t('직원', 'People'), icon: <Users size={20} /> },
-    { to: '/simulator', label: t('시뮬레이터', 'What-if'), icon: <SlidersHorizontal size={20} /> },
+  const allCommands: Command[] = [
+    ...commands,
+    { id: 'lang', label: lang === 'ko' ? 'Switch to English' : '한국어로 전환', icon: <Languages size={18} />, keywords: 'language 언어', run: toggleLang },
+    { id: 'theme', label: t('테마 전환', 'Toggle theme'), icon: theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />, keywords: 'dark light 다크', run: toggleTheme },
+    { id: 'reset', label: t('데모 데이터 초기화', 'Reset demo data'), icon: <RotateCcw size={18} />, run: resetDemo },
+    { id: 'logout', label: t('로그아웃', 'Sign out'), icon: <LogOut size={18} />, run: logout },
   ]
-
-  const commands = useMemo<Command[]>(
-    () => [
-      ...nav.map((n) => ({ id: `go-${n.to}`, label: n.label, hint: t('이동', 'Go to'), icon: n.icon, run: () => navigate(n.to) })),
-      { id: 'add', label: t('직원 등록 (W-4·I-9)', 'Add employee (W-4, I-9)'), icon: <UserPlus size={18} />, keywords: 'new hire', run: () => navigate('/employees/new') },
-      ...employees.map((e) => ({
-        id: `emp-${e.id}`,
-        label: e.name,
-        hint: t('시뮬레이션', 'Simulate'),
-        icon: <SlidersHorizontal size={18} />,
-        keywords: `${e.role} ${e.id}`,
-        run: () => navigate(`/simulator?e=${e.id}`),
-      })),
-      { id: 'lang', label: lang === 'ko' ? 'Switch to English' : '한국어로 전환', icon: <Languages size={18} />, keywords: 'language 언어', run: toggleLang },
-      { id: 'theme', label: t('테마 전환', 'Toggle theme'), icon: theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />, keywords: 'dark light 다크', run: toggleTheme },
-      { id: 'reset', label: t('데모 데이터 초기화', 'Reset demo data'), icon: <RotateCcw size={18} />, run: resetDemo },
-    ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [employees, lang, theme],
-  )
 
   return (
     <div className="shell">
@@ -57,7 +51,9 @@ export default function Layout() {
         <div className="brand">
           <span className="brand-mark">P</span>
           <span>Payday</span>
+          <span className="brand-tag">{t('고객 포털', 'Client portal')}</span>
         </div>
+        {identity}
         <button className="search-trigger" onClick={() => setPaletteOpen(true)}>
           <Search size={16} aria-hidden />
           <span>{t('검색 또는 명령', 'Search or jump to')}</span>
@@ -71,14 +67,19 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+        {extraNav}
         <div className="side-foot">
-          <button className="icon-btn" onClick={toggleLang} title={t('언어 전환', 'Switch language')}>
+          <button className="icon-btn" onClick={toggleLang}>
             <Languages size={18} aria-hidden />
             <span>{lang === 'ko' ? 'English' : '한국어'}</span>
           </button>
-          <button className="icon-btn" onClick={toggleTheme} title={t('테마 전환', 'Toggle theme')}>
+          <button className="icon-btn" onClick={toggleTheme}>
             {theme === 'dark' ? <Sun size={18} aria-hidden /> : <Moon size={18} aria-hidden />}
             <span>{theme === 'dark' ? t('라이트 모드', 'Light mode') : t('다크 모드', 'Dark mode')}</span>
+          </button>
+          <button className="icon-btn" onClick={logout}>
+            <LogOut size={18} aria-hidden />
+            <span>{t('로그아웃', 'Sign out')}</span>
           </button>
         </div>
       </aside>
@@ -86,18 +87,12 @@ export default function Layout() {
       <header className="mobile-top">
         <div className="brand">
           <span className="brand-mark">P</span>
-          <span>Payday</span>
+          <span className="mobile-title">{mobileTitle}</span>
         </div>
         <div className="mobile-actions">
-          <button className="round-btn" onClick={() => setPaletteOpen(true)} aria-label={t('검색', 'Search')}>
-            <Search size={18} />
-          </button>
-          <button className="round-btn" onClick={toggleLang} aria-label={t('언어 전환', 'Switch language')}>
-            <Languages size={18} />
-          </button>
-          <button className="round-btn" onClick={toggleTheme} aria-label={t('테마 전환', 'Toggle theme')}>
-            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+          <button className="round-btn" onClick={() => setPaletteOpen(true)} aria-label={t('검색', 'Search')}><Search size={18} /></button>
+          <button className="round-btn" onClick={toggleLang} aria-label={t('언어 전환', 'Switch language')}><Languages size={18} /></button>
+          <button className="round-btn" onClick={logout} aria-label={t('로그아웃', 'Sign out')}><LogOut size={18} /></button>
         </div>
       </header>
 
@@ -105,8 +100,8 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <nav className="bottom-nav">
-        {nav.map((n) => (
+      <nav className="bottom-nav" style={{ gridTemplateColumns: `repeat(${nav.filter((n) => n.mobile !== false).length}, 1fr)` }}>
+        {nav.filter((n) => n.mobile !== false).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end}>
             {n.icon}
             <span>{n.label}</span>
@@ -117,10 +112,114 @@ export default function Layout() {
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        commands={commands}
-        placeholder={t('무엇을 할까요? 예: 직원 추가, Alex', 'What do you need? e.g. add employee, Alex')}
+        commands={allCommands}
+        placeholder={t('무엇을 할까요? 예: 직원 등록, 급여 실행', 'What do you need? e.g. add employee, run payroll')}
         emptyText={t('일치하는 항목이 없습니다', 'No matches')}
       />
     </div>
+  )
+}
+
+/* ───────── 고객 (레스토랑) ───────── */
+
+function ClientShell() {
+  const { t } = usePrefs()
+  const { session } = usePortal()
+  const { company, employees, status } = useStore()
+  const navigate = useNavigate()
+
+  const nav: NavItem[] = [
+    { to: '/', label: t('홈', 'Home'), icon: <LayoutDashboard size={20} />, end: true },
+    { to: '/run', label: t('급여 실행', 'Run payroll'), icon: <CirclePlay size={20} /> },
+    { to: '/employees', label: t('직원', 'People'), icon: <Users size={20} /> },
+    { to: '/company', label: t('회사 정보', 'Company'), icon: <Building2 size={20} /> },
+    { to: '/simulator', label: t('시뮬레이터', 'What-if'), icon: <SlidersHorizontal size={20} />, mobile: false },
+  ]
+
+  const commands = useMemo<Command[]>(
+    () => [
+      ...nav.map((n) => ({ id: `go-${n.to}`, label: n.label, hint: t('이동', 'Go to'), icon: n.icon, run: () => navigate(n.to) })),
+      { id: 'add', label: t('직원 등록 (W-4·I-9)', 'Add employee (W-4, I-9)'), icon: <UserPlus size={18} />, keywords: 'new hire', run: () => navigate('/employees/new') },
+      ...employees.map((e) => ({ id: `emp-${e.id}`, label: e.name, hint: t('직원 정보', 'Profile'), icon: <Users size={18} />, keywords: `${e.role} ${e.id}`, run: () => navigate(`/employees/${e.id}`) })),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [employees, t],
+  )
+
+  return (
+    <Shell
+      nav={nav}
+      commands={commands}
+      mobileTitle={company.dba}
+      identity={
+        <div className="identity">
+          <span className="identity-logo">{company.dba.split(' ').map((w) => w[0]).slice(0, 2).join('')}</span>
+          <div>
+            <strong>{company.dba}</strong>
+            <small>{session?.name} · {t('대표', 'Owner')}</small>
+          </div>
+          <span className={`status-dot ${statusTone(status)}`} title={status} />
+        </div>
+      }
+    />
+  )
+}
+
+export function ClientLayout() {
+  const { session } = usePortal()
+  if (!session) return <Navigate to="/login" replace />
+  if (session.role !== 'client') return <Navigate to="/firm" replace />
+  return (
+    <CompanyProvider companyId={session.companyId}>
+      <ClientShell />
+    </CompanyProvider>
+  )
+}
+
+/* ───────── 회계법인 ───────── */
+
+export function FirmLayout() {
+  const { t } = usePrefs()
+  const { session, companies } = usePortal()
+  const navigate = useNavigate()
+  const payDate = currentPayDate()
+  if (!session) return <Navigate to="/login" replace />
+  if (session.role !== 'firm') return <Navigate to="/" replace />
+
+  const nav: NavItem[] = [{ to: '/firm', label: t('제출 대기열', 'Payroll queue'), icon: <Inbox size={20} />, end: true }]
+  const commands: Command[] = [
+    ...nav.map((n) => ({ id: `go-${n.to}`, label: n.label, hint: t('이동', 'Go to'), icon: n.icon, run: () => navigate(n.to) })),
+    ...companies.map((c) => ({ id: `co-${c.company.id}`, label: c.company.dba, hint: t('검토', 'Review'), icon: <Building2 size={18} />, run: () => navigate(`/firm/c/${c.company.id}`) })),
+  ]
+
+  return (
+    <Shell
+      nav={nav}
+      commands={commands}
+      mobileTitle={firmAccount.firmName}
+      identity={
+        <div className="identity firm">
+          <span className="identity-logo">CPA</span>
+          <div>
+            <strong>{firmAccount.firmName}</strong>
+            <small>{session.name} · {t(firmAccount.title, firmAccount.titleEn)}</small>
+          </div>
+        </div>
+      }
+      extraNav={
+        <div className="side-section">
+          <span className="side-label">{t('고객사', 'Clients')}</span>
+          {companies.map((c) => {
+            const status = c.current.payDate === payDate ? c.current.status : 'draft'
+            return (
+              <NavLink key={c.company.id} to={`/firm/c/${c.company.id}`} className="side-client">
+                <span className={`status-dot ${statusTone(status)}`} />
+                <span>{c.company.dba}</span>
+              </NavLink>
+            )
+          })}
+        </div>
+      }
+    />
   )
 }

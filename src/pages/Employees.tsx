@@ -1,57 +1,89 @@
-import { Pencil, Plus, Search, SlidersHorizontal, UserCheck, UserX } from 'lucide-react'
+import { ArrowDownUp, ChevronRight, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, UserCheck, UserX } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { companySchedule, periodsPerYear } from '../config/payrollConfig'
 import { i9Badge, i9State, maskSsn } from '../lib/compliance'
-import { formatCurrency } from '../lib/format'
-import { filingLabel, payLabel, roleLabel } from '../lib/labels'
+import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
+import { filingLabel, roleLabel } from '../lib/labels'
+import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
+import type { Employee } from '../types'
 
-type Filter = 'active' | 'all' | 'inactive' | 'attention'
+type Filter = 'active' | 'attention' | 'tipped' | 'inactive' | 'all'
+type Sort = 'name' | 'role' | 'hire' | 'pay'
+
+/** 이름으로 정해지는 아바타 색 (항목 구분용, 데이터 의미 없음) */
+const avatarHue = (name: string) => [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7)
+
+function tenure(hireDate: string, today: Date, t: (ko: string, en: string) => string) {
+  const d = new Date(hireDate)
+  const months = (today.getFullYear() - d.getFullYear()) * 12 + today.getMonth() - d.getMonth()
+  if (months < 1) return t('신규', 'New')
+  if (months < 12) return t(`${months}개월`, `${months} mo`)
+  const y = Math.floor(months / 12)
+  return t(`${y}년`, `${y} yr`)
+}
 
 export default function Employees() {
-  const { t } = usePrefs()
-  const { employees, results, toggleActive } = useStore()
+  const { t, locale } = usePrefs()
+  const { session } = usePortal()
+  const { employees, results, toggleActive, company } = useStore()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('active')
+  const [sort, setSort] = useState<Sort>('name')
+  const [menu, setMenu] = useState<string | null>(null)
   const [today] = useState(() => new Date())
+  const me = session?.name ?? company.ownerName
 
   const enriched = useMemo(
     () =>
       employees.map((e) => {
         const i9 = i9Badge(i9State(e, today), t)
-        const needsAttention = e.active && (i9.tone !== 'good' || !e.w4)
-        return { e, i9, needsAttention }
+        return { e, i9, attention: e.active && (i9.tone !== 'good' || !e.w4) }
       }),
     [employees, today, t],
   )
 
-  const list = enriched.filter(({ e, needsAttention }) => {
-    const q = query.trim().toLowerCase()
-    const matches = !q || `${e.name} ${roleLabel(e.role, t)} ${e.id}`.toLowerCase().includes(q)
-    const inFilter =
-      filter === 'all' || (filter === 'active' ? e.active : filter === 'inactive' ? !e.active : needsAttention)
-    return matches && inFilter
-  })
-
   const counts: Record<Filter, number> = {
     active: employees.filter((e) => e.active).length,
-    attention: enriched.filter((x) => x.needsAttention).length,
-    all: employees.length,
+    attention: enriched.filter((x) => x.attention).length,
+    tipped: employees.filter((e) => e.active && e.payType === 'tipped').length,
     inactive: employees.filter((e) => !e.active).length,
+    all: employees.length,
   }
   const filterLabel: Record<Filter, string> = {
     active: t('재직', 'Active'),
     attention: t('서류 확인 필요', 'Needs paperwork'),
-    all: t('전체', 'All'),
+    tipped: t('팁 직원', 'Tipped'),
     inactive: t('퇴사', 'Former'),
+    all: t('전체', 'All'),
   }
 
+  const annual = (e: Employee) => (e.payType === 'salary' ? e.rate : e.rate * 2080)
+  const list = enriched
+    .filter(({ e, attention }) => {
+      const q = query.trim().toLowerCase()
+      if (q && !`${e.name} ${roleLabel(e.role, t)} ${e.id} ${e.email ?? ''}`.toLowerCase().includes(q)) return false
+      if (filter === 'active') return e.active
+      if (filter === 'inactive') return !e.active
+      if (filter === 'attention') return attention
+      if (filter === 'tipped') return e.active && e.payType === 'tipped'
+      return true
+    })
+    .sort((a, b) => {
+      if (sort === 'role') return roleLabel(a.e.role, t).localeCompare(roleLabel(b.e.role, t)) || a.e.name.localeCompare(b.e.name)
+      if (sort === 'hire') return a.e.hireDate.localeCompare(b.e.hireDate)
+      if (sort === 'pay') return annual(b.e) - annual(a.e)
+      return a.e.name.localeCompare(b.e.name)
+    })
+
   return (
-    <div className="page">
+    <div className="page" onClick={() => menu && setMenu(null)}>
       <header className="page-head row between wrap">
         <div>
-          <p className="eyebrow">{t(`재직 ${counts.active}명 · 텍사스`, `${counts.active} active · Texas`)}</p>
+          <p className="eyebrow">{company.dba}</p>
           <h1>{t('직원', 'People')}</h1>
         </div>
         <Link className="btn primary" to="/employees/new">
@@ -59,74 +91,124 @@ export default function Employees() {
         </Link>
       </header>
 
-      <div className="toolbar">
-        <div className="search">
-          <Search size={16} aria-hidden />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('이름, 직무로 검색', 'Search name or role')} />
-        </div>
-        <div className="segmented scroll-x">
-          {(['active', 'attention', 'all', 'inactive'] as const).map((f) => (
-            <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
-              {filterLabel[f]} {counts[f]}
-            </button>
-          ))}
-        </div>
-      </div>
+      <section className="people-summary">
+        <button className={filter === 'active' ? 'on' : ''} onClick={() => setFilter('active')}>
+          <strong>{counts.active}</strong><span>{t('재직 중', 'Active')}</span>
+        </button>
+        <button className={filter === 'tipped' ? 'on' : ''} onClick={() => setFilter('tipped')}>
+          <strong>{counts.tipped}</strong><span>{t('팁 직원', 'Tipped')}</span>
+        </button>
+        <button className={`${filter === 'attention' ? 'on' : ''}${counts.attention ? ' warn' : ''}`} onClick={() => setFilter('attention')}>
+          <strong>{counts.attention}</strong><span>{t('W-4·I-9 확인 필요', 'W-4 / I-9 to fix')}</span>
+        </button>
+        <button className={filter === 'inactive' ? 'on' : ''} onClick={() => setFilter('inactive')}>
+          <strong>{counts.inactive}</strong><span>{t('퇴사', 'Former')}</span>
+        </button>
+      </section>
 
-      {list.length === 0 ? (
-        <div className="card empty">{t('조건에 맞는 직원이 없습니다.', 'No one matches.')}</div>
-      ) : (
-        <div className="emp-grid">
-          {list.map(({ e, i9 }) => {
-            const r = results.find((x) => x.employeeId === e.id)
-            return (
-              <article key={e.id} className={`card emp ${e.active ? '' : 'inactive'}`}>
-                <div className="person">
-                  <span className="avatar lg">{e.name.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase()}</span>
-                  <div>
-                    <strong>{e.name}</strong>
-                    <span className="muted small">
-                      {roleLabel(e.role, t)} · {e.id} · SSN {maskSsn(e.ssnLast4)}
-                    </span>
-                  </div>
-                </div>
-                <div className="badges">
-                  <span className={`badge ${e.w4 ? 'good' : 'warn'}`}>
-                    {e.w4 ? `W-4 · ${filingLabel(e.w4.filingStatus, t)}` : t('W-4 미제출', 'No W-4')}
-                  </span>
-                  <span className={`badge ${i9.tone}`}>{i9.label}</span>
-                </div>
-                <dl className="emp-facts">
-                  <div>
-                    <dt>{t('급여', 'Pay')}</dt>
-                    <dd>{payLabel(e, t)}</dd>
-                  </div>
-                  <div>
-                    <dt>401(k)</dt>
-                    <dd>{Math.round(e.pretaxDeferralRate * 100)}%</dd>
-                  </div>
-                  <div>
-                    <dt>{t('이번 입금액', 'Next check')}</dt>
-                    <dd className="accent">{r ? formatCurrency(r.netPay) : '—'}</dd>
-                  </div>
-                </dl>
-                <div className="emp-actions">
-                  <Link className="btn ghost sm" to={`/employees/${e.id}`}>
-                    <Pencil size={15} aria-hidden /> {t('정보·서류', 'Details & forms')}
-                  </Link>
-                  <Link className="btn ghost sm" to={`/simulator?e=${e.id}`}>
-                    <SlidersHorizontal size={15} aria-hidden /> {t('시뮬레이션', 'What-if')}
-                  </Link>
-                  <button className="btn ghost sm" onClick={() => toggleActive(e.id)}>
-                    {e.active ? <UserX size={15} aria-hidden /> : <UserCheck size={15} aria-hidden />}
-                    {e.active ? t('퇴사 처리', 'Deactivate') : t('복직', 'Reactivate')}
-                  </button>
-                </div>
-              </article>
-            )
-          })}
+      <section className="card list-card">
+        <div className="table-toolbar">
+          <div className="search compact">
+            <Search size={15} aria-hidden />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('이름, 직무, 이메일 검색', 'Search name, role, email')} />
+          </div>
+          <div className="toolbar-actions">
+            <div className="segmented scroll-x">
+              {(['active', 'attention', 'all'] as const).map((f) => (
+                <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
+                  {filterLabel[f]} <span className="count">{counts[f]}</span>
+                </button>
+              ))}
+            </div>
+            <label className="sort-select">
+              <ArrowDownUp size={14} aria-hidden />
+              <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label={t('정렬', 'Sort')}>
+                <option value="name">{t('이름순', 'Name')}</option>
+                <option value="role">{t('직무순', 'Role')}</option>
+                <option value="hire">{t('입사일순', 'Hire date')}</option>
+                <option value="pay">{t('급여 높은순', 'Highest pay')}</option>
+              </select>
+            </label>
+          </div>
         </div>
-      )}
+
+        <div className="plist-head" aria-hidden>
+          <span>{t('직원', 'Employee')}</span>
+          <span>{t('급여', 'Pay')}</span>
+          <span>{t('서류', 'Paperwork')}</span>
+          <span className="num">{t('이번 입금액', 'Next check')}</span>
+          <span />
+        </div>
+
+        {list.length === 0 ? (
+          <div className="empty">{t('조건에 맞는 직원이 없습니다.', 'No one matches.')}</div>
+        ) : (
+          <ul className="plist">
+            {list.map(({ e, i9 }) => {
+              const r = results.find((x) => x.employeeId === e.id)
+              const hue = avatarHue(e.name)
+              return (
+                <li key={e.id} className={e.active ? '' : 'inactive'}>
+                  <button className="plist-row" onClick={() => navigate(`/employees/${e.id}`)}>
+                    <span className="plist-person">
+                      <span className="avatar" style={{ background: `hsl(${hue} 70% 92%)`, color: `hsl(${hue} 45% 32%)` }}>{initials(e.name)}</span>
+                      <span className="plist-name">
+                        <strong>{e.name}{!e.active && <span className="tag neutral">{t('퇴사', 'Former')}</span>}</strong>
+                        <small>
+                          {roleLabel(e.role, t)} · {t('입사', 'Hired')} {formatDate(new Date(e.hireDate + 'T00:00'), locale, { year: 'numeric', month: 'short', day: 'numeric' })} ({tenure(e.hireDate, today, t)}) · SSN {maskSsn(e.ssnLast4)}
+                        </small>
+                      </span>
+                    </span>
+                    <span className="plist-pay">
+                      <strong>
+                        {e.payType === 'salary' ? formatCurrencyWhole(e.rate) : formatCurrency(e.rate)}
+                        <small>{e.payType === 'salary' ? t('/년', '/yr') : '/h'}</small>
+                      </strong>
+                      <small>
+                        {e.payType === 'salary'
+                          ? t(`회당 ${formatCurrency(e.rate / periodsPerYear[companySchedule.frequency])}`, `${formatCurrency(e.rate / periodsPerYear[companySchedule.frequency])} per check`)
+                          : e.payType === 'tipped' ? t('팁 직원 · 401(k) ', 'Tipped · 401(k) ') + `${Math.round(e.pretaxDeferralRate * 100)}%`
+                          : t('시급 · 401(k) ', 'Hourly · 401(k) ') + `${Math.round(e.pretaxDeferralRate * 100)}%`}
+                      </small>
+                    </span>
+                    <span className="plist-docs">
+                      <span className={`pill-dot ${e.w4 ? 'good' : 'warn'}`}>{e.w4 ? `W-4 · ${filingLabel(e.w4.filingStatus, t)}` : t('W-4 미제출', 'No W-4')}</span>
+                      <span className={`pill-dot ${i9.tone}`}>{i9.label}</span>
+                    </span>
+                    <span className="plist-net num">
+                      {r ? <strong>{formatCurrency(r.netPay)}</strong> : <span className="muted">—</span>}
+                      {r && <small>{t('총급여', 'gross')} {formatCurrency(r.grossPay)}</small>}
+                    </span>
+                    <ChevronRight size={18} className="plist-chev" aria-hidden />
+                  </button>
+                  <div className="plist-menu">
+                    <button
+                      className="icon-only"
+                      aria-label={t('더보기', 'More')}
+                      onClick={(ev) => { ev.stopPropagation(); setMenu(menu === e.id ? null : e.id) }}
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                    {menu === e.id && (
+                      <div className="menu-pop" onClick={(ev) => ev.stopPropagation()}>
+                        <Link to={`/employees/${e.id}`}><Pencil size={15} aria-hidden /> {t('정보·서류 수정', 'Edit details & forms')}</Link>
+                        <Link to={`/simulator?e=${e.id}`}><SlidersHorizontal size={15} aria-hidden /> {t('급여 시뮬레이션', 'Pay what-if')}</Link>
+                        <button onClick={() => { toggleActive(e.id); setMenu(null) }}>
+                          {e.active ? <UserX size={15} aria-hidden /> : <UserCheck size={15} aria-hidden />}
+                          {e.active ? t('퇴사 처리', 'Deactivate') : t('복직', 'Reactivate')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        <p className="table-hint muted small">
+          {t(`${list.length}명 표시 · 행을 누르면 W-4·I-9를 포함한 직원 정보를 수정할 수 있어요. 변경 내용은 회계법인에 기록됩니다 (${me}).`, `${list.length} shown · Click a row to edit details including W-4 and I-9. Changes are logged for your CPA (${me}).`)}
+        </p>
+      </section>
     </div>
   )
 }

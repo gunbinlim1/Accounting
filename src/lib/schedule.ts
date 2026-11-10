@@ -18,6 +18,18 @@ export const daysBetween = (from: Date, to: Date): number =>
 const addDays = (d: Date, n: number): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
 const lastDayOfMonth = (y: number, m: number): Date => new Date(y, m + 1, 0)
 
+/** n 영업일 전 (주말 제외) */
+export function subtractBusinessDays(date: Date, n: number): Date {
+  const d = startOfDay(date)
+  let moved = 0
+  while (moved < n) {
+    d.setDate(d.getDate() - 1)
+    const day = d.getDay()
+    if (day !== 0 && day !== 6) moved++
+  }
+  return d
+}
+
 /** from 이후(당일 포함) 첫 급여일 */
 export function nextPayDate(frequency: PayFrequency, anchor: Date, from: Date): Date {
   const today = startOfDay(from)

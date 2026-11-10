@@ -107,6 +107,8 @@ export interface PayrollInput {
   payFrequency: PayFrequency
   time?: Partial<TimeEntry>
   ytd?: Partial<YtdTotals>
+  /** 고객사 TWC 세율 (없으면 기본값) */
+  sutaRate?: number
 }
 
 export interface PayrollResult {
@@ -154,3 +156,69 @@ export interface PayRun {
   time: Record<string, TimeEntry>
   results: PayrollResult[]
 }
+
+// ───────── 고객 포털 ─────────
+
+export type RunStatus = 'draft' | 'submitted' | 'in_review' | 'changes_requested' | 'processed'
+
+export type DepositSchedule = 'monthly' | 'semiweekly'
+
+/** 고객사 (레스토랑) 정보 */
+export interface Company {
+  id: string
+  legalName: string
+  dba: string
+  /** 연방 고용주 번호 XX-XXXXXXX */
+  ein: string
+  /** 텍사스 TWC 계정번호 */
+  twcAccount: string
+  /** TWC 통지 실업세율 (0.027 = 2.7%) */
+  sutaRate: number
+  depositSchedule: DepositSchedule
+  address: Address
+  ownerName: string
+  ownerEmail: string
+  phone: string
+  /** 지급일 몇 영업일 전까지 제출 */
+  cutoffBusinessDays: number
+}
+
+export interface ActivityEvent {
+  id: string
+  at: string
+  actor: 'client' | 'firm'
+  actorName: string
+  ko: string
+  en: string
+  kind: 'submit' | 'recall' | 'review' | 'changes' | 'processed' | 'employee' | 'settings' | 'reminder'
+}
+
+/** 제출 시점에 고정한 급여 자료 — 제출 후 직원 정보가 바뀌어도 검토 대상은 그대로 */
+export interface RunSnapshot {
+  employees: Employee[]
+  time: Record<string, TimeEntry>
+  results: PayrollResult[]
+}
+
+export interface CurrentRun {
+  payDate: string
+  status: RunStatus
+  submittedAt?: string
+  submittedBy?: string
+  /** 회계법인이 남긴 수정 요청 메모 */
+  note?: string
+  snapshot?: RunSnapshot
+}
+
+export interface CompanyData {
+  company: Company
+  employees: Employee[]
+  time: Record<string, TimeEntry>
+  runs: PayRun[]
+  current: CurrentRun
+  activity: ActivityEvent[]
+}
+
+export type Session =
+  | { role: 'client'; companyId: string; name: string; email: string }
+  | { role: 'firm'; name: string; email: string }
