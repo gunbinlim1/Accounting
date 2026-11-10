@@ -88,6 +88,11 @@ export interface TimeEntry {
   cashTips: number
   /** 카드 팁 (급여로 지급) */
   cardTips: number
+  /**
+   * 이번 회차에만 적용할 급여 금액 (비우면 직원 기본값).
+   * hourly/tipped: 시급, salary: 회당 급여
+   */
+  rate?: number
 }
 
 export interface YtdTotals {

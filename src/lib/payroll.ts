@@ -1,5 +1,5 @@
 import { payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
-import type { PayrollInput, PayrollResult } from '../types'
+import type { Employee, PayFrequency, PayrollInput, PayrollResult, TimeEntry } from '../types'
 import { federalIncomeTaxWithholding } from './federalWithholding'
 import { roundCents } from './money'
 
@@ -16,6 +16,17 @@ export const tippedOvertimeRate = (cashRate: number): number => {
   const credit = tipCreditRate(cashRate)
   return (cashRate + credit) * cfg.overtimeMultiplier - credit
 }
+
+/** 회차별 급여 금액(TimeEntry.rate)을 반영한 직원 정보. 연봉 직원은 회당 금액 × 연간 지급 횟수 */
+export function effectiveEmployee<E extends Employee>(e: E, entry: Partial<TimeEntry> | undefined, frequency: PayFrequency): E {
+  const override = entry?.rate
+  if (override === undefined || override === null || !Number.isFinite(override)) return e
+  return { ...e, rate: e.payType === 'salary' ? roundCents(override * periodsPerYear[frequency]) : override }
+}
+
+/** 직원 기본 급여를 회차 입력 단위로 (시급 그대로, 연봉은 회당 금액) */
+export const baseRateForEntry = (e: Employee, frequency: PayFrequency): number =>
+  e.payType === 'salary' ? roundCents(e.rate / periodsPerYear[frequency]) : e.rate
 
 /** 상한까지 남은 과세 대상 금액 */
 const underBase = (amount: number, ytd: number, base: number) => Math.min(amount, Math.max(0, base - ytd))

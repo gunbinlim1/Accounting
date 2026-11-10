@@ -2,7 +2,7 @@ import { ArrowLeft, ArrowRight, Check, FileCheck2, IdCard, Lock, ShieldCheck, Us
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
-import { companySchedule, payrollConfig as cfg } from '../config/payrollConfig'
+import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import { restaurantRoles, roleOrder } from '../config/restaurantRoles'
 import { addBusinessDays, keepLast4, maskSsn } from '../lib/compliance'
 import { defaultW4 } from '../lib/federalWithholding'
@@ -319,9 +319,15 @@ export default function EmployeeForm() {
                   />
                 </Field>
                 <Field
-                  label={d.payType === 'salary' ? t('연봉', 'Annual salary') : d.payType === 'tipped' ? t('현금 시급 (팁 크레딧 적용)', 'Cash wage (tip credit)') : t('시급', 'Hourly rate')}
+                  label={d.payType === 'salary' ? t('기본 연봉', 'Default annual salary') : d.payType === 'tipped' ? t('기본 현금 시급 (팁 크레딧 적용)', 'Default cash wage (tip credit)') : t('기본 시급', 'Default hourly rate')}
                   error={err('rate') ?? rateWarning}
-                  hint={d.payType === 'tipped' ? t('최저 $2.13 + 팁으로 $7.25 이상 보장, 부족하면 자동 보전', '$2.13 minimum; tips must bring pay to $7.25/h or we add make-up pay') : undefined}
+                  hint={
+                    d.payType === 'salary'
+                      ? t(`회당 ${formatCurrency(num(d.rate) / periodsPerYear[companySchedule.frequency])} (격주) · 기본값이며 급여 실행에서 회차별로 바꿀 수 있어요`, `${formatCurrency(num(d.rate) / periodsPerYear[companySchedule.frequency])} per biweekly check · default only, adjustable each run`)
+                      : d.payType === 'tipped'
+                        ? t('최저 $2.13, 팁 포함 $7.25 미달 시 자동 보전 · 급여 실행에서 회차별로 바꿀 수 있어요', '$2.13 minimum, topped up to $7.25/h · adjustable each run')
+                        : t('기본값이며 급여 실행에서 회차별로 바꿀 수 있어요', 'Default only — adjustable each run')
+                  }
                 >
                   <Money value={d.rate} onChange={(v) => set('rate', v)} />
                 </Field>

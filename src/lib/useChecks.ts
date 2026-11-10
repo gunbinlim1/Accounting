@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { companySchedule, standardHours } from '../config/payrollConfig'
 import { useStore } from '../store'
 import { runChecks } from './checks'
+import { effectiveEmployee } from './payroll'
 
 /** 이번 회차 급여에 대한 자동 점검 결과 */
 export function useChecks() {
@@ -10,7 +11,7 @@ export function useChecks() {
   return useMemo(
     () =>
       runChecks({
-        employees: employees.filter((e) => e.active),
+        employees: employees.filter((e) => e.active).map((e) => effectiveEmployee(e, time[e.id], companySchedule.frequency)),
         time,
         results,
         previous: lastRun?.results,

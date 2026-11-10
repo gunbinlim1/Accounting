@@ -8,9 +8,9 @@ import PayStub from '../components/PayStub'
 import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import { defaultTimeFor, receivesTips } from '../config/restaurantRoles'
 import type { Check as CheckItem } from '../lib/checks'
-import { formatCurrency, formatDate, initials } from '../lib/format'
+import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
 import { roleLabel } from '../lib/labels'
-import { sumResults, tippedOvertimeRate } from '../lib/payroll'
+import { baseRateForEntry, effectiveEmployee, sumResults, tippedOvertimeRate } from '../lib/payroll'
 import { daysBetween, parseISODate, previousPayDate } from '../lib/schedule'
 import { useChecks } from '../lib/useChecks'
 import { usePrefs } from '../prefs'
@@ -20,7 +20,7 @@ import type { Employee, PayRun, TimeEntry } from '../types'
 
 /** 표 안의 숫자 입력 — Enter/↑/↓로 같은 열의 위아래 칸으로 이동 */
 function CellInput({ value, onChange, money, row, col, label, disabled }: {
-  value: number; onChange: (v: number) => void; money?: boolean; row: number; col: number; label: string; disabled?: boolean
+  value: number; onChange: (v: number) => void; money?: boolean; row: number; col: number | string; label: string; disabled?: boolean
 }) {
   const move = (e: KeyboardEvent<HTMLInputElement>) => {
     const dir = e.key === 'ArrowDown' || e.key === 'Enter' ? 1 : e.key === 'ArrowUp' ? -1 : 0
@@ -51,23 +51,84 @@ function CellInput({ value, onChange, money, row, col, label, disabled }: {
   )
 }
 
-/** 시급·연봉을 크게 표시하는 셀. hours를 주면 아래 줄에 실제 근무시간을 표시 */
-function RateCell({ e, hours }: { e: Employee; hours?: TimeEntry }) {
+const PERIODS = periodsPerYear[companySchedule.frequency]
+
+/** 검토 화면: 이번 회차에 적용된 시급·연봉을 크게 표시. 아래 줄에 실제 근무시간 */
+function RateCell({ e, entry }: { e: Employee; entry?: TimeEntry }) {
   const { t } = usePrefs()
+  const eff = effectiveEmployee(e, entry, companySchedule.frequency)
   const salary = e.payType === 'salary'
-  const perCheck = e.rate / periodsPerYear[companySchedule.frequency]
-  let sub: string
-  if (salary) sub = t(`회당 ${formatCurrency(perCheck)}`, `${formatCurrency(perCheck)} per check`)
-  else if (hours) sub = `${hours.regular + hours.overtime}h${hours.overtime ? ` · OT ${hours.overtime}h` : ''}${e.payType === 'tipped' ? t(' · + 팁', ' · + tips') : ''}`
-  else if (e.payType === 'tipped') sub = t(`+ 팁 · OT ${formatCurrency(tippedOvertimeRate(e.rate))}`, `+ tips · OT ${formatCurrency(tippedOvertimeRate(e.rate))}`)
-  else sub = `OT ${formatCurrency(e.rate * cfg.overtimeMultiplier)}`
+  const changed = entry?.rate !== undefined && eff.rate !== e.rate
+  const sub = salary
+    ? t(`회당 ${formatCurrency(eff.rate / PERIODS)}`, `${formatCurrency(eff.rate / PERIODS)} per check`)
+    : `${(entry?.regular ?? 0) + (entry?.overtime ?? 0)}h${entry?.overtime ? ` · OT ${entry.overtime}h` : ''}${e.payType === 'tipped' ? t(' · + 팁', ' · + tips') : ''}`
   return (
     <td className="num rate-cell" data-label={t('급여 기준', 'Pay rate')}>
       <span className="rate-main">
-        {salary ? formatCurrency(e.rate).replace(/\.00$/, '') : formatCurrency(e.rate)}
+        {salary ? formatCurrencyWhole(eff.rate) : formatCurrency(eff.rate)}
         <small>{salary ? t('/년', '/yr') : '/h'}</small>
       </span>
+      <span className="rate-sub">
+        {sub}
+        {changed && <span className="tag info">{t('이번 회차 변경', 'Changed this run')}</span>}
+      </span>
+    </td>
+  )
+}
+
+/**
+ * 입력 화면: 이번 회차 시급(또는 연봉 직원의 회당 급여)을 직접 입력.
+ * 연봉 직원은 입력한 회당 금액으로 연봉을 계산해 보여 줌.
+ */
+function RateInputCell({ e, entry, row, onChange, onSaveDefault }: {
+  e: Employee; entry?: TimeEntry; row: number; onChange: (rate: number | undefined) => void; onSaveDefault: () => void
+}) {
+  const { t } = usePrefs()
+  const salary = e.payType === 'salary'
+  const base = baseRateForEntry(e, companySchedule.frequency)
+  const value = entry?.rate ?? base
+  const changed = entry?.rate !== undefined && Math.abs(entry.rate - base) > 0.004
+  const sub = salary
+    ? t(`연봉 ${formatCurrencyWhole(value * PERIODS)}`, `${formatCurrencyWhole(value * PERIODS)} / yr`)
+    : e.payType === 'tipped'
+      ? t(`+ 팁 · OT ${formatCurrency(tippedOvertimeRate(value))}`, `+ tips · OT ${formatCurrency(tippedOvertimeRate(value))}`)
+      : `OT ${formatCurrency(value * cfg.overtimeMultiplier)}`
+  return (
+    <td className="num rate-cell editable" data-label={salary ? t('회당 급여', 'Per check') : t('시급', 'Hourly rate')}>
+      <span className={`rate-edit${changed ? ' changed' : ''}`}>
+        <span aria-hidden>$</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step="0.01"
+          value={value}
+          aria-label={`${e.name} ${salary ? t('회당 급여', 'pay per check') : t('시급', 'hourly rate')}`}
+          data-cell={`${row}-rate`}
+          onFocus={(ev) => ev.target.select()}
+          onKeyDown={(ev) => {
+            const dir = ev.key === 'ArrowDown' || ev.key === 'Enter' ? 1 : ev.key === 'ArrowUp' ? -1 : 0
+            if (!dir) return
+            ev.preventDefault()
+            const next = document.querySelector<HTMLInputElement>(`[data-cell="${row + dir}-rate"]`)
+            next?.focus()
+            next?.select()
+          }}
+          onChange={(ev) => {
+            const v = Math.max(0, Number(ev.target.value) || 0)
+            onChange(Math.abs(v - base) < 0.005 ? undefined : v)
+          }}
+        />
+        <small>{salary ? t('/회', '/check') : '/h'}</small>
+      </span>
       <span className="rate-sub">{sub}</span>
+      {changed && (
+        <span className="rate-changed">
+          {t('기본', 'Default')} {formatCurrency(base)}
+          <button type="button" onClick={() => onChange(undefined)}>{t('되돌리기', 'Reset')}</button>
+          <button type="button" onClick={onSaveDefault}>{t('기본값으로 저장', 'Save as default')}</button>
+        </span>
+      )}
     </td>
   )
 }
@@ -80,7 +141,7 @@ const sevIcon = {
 
 export default function PayrollRun() {
   const { t, lang, locale } = usePrefs()
-  const { employees, time, setTime, results, payDate, lastRun, approveRun, approvedForPayDate } = useStore()
+  const { employees, time, setTime, results, payDate, lastRun, approveRun, approvedForPayDate, upsertEmployee } = useStore()
   const checks = useChecks()
   const [step, setStep] = useState<1 | 2>(1)
   const [query, setQuery] = useState('')
@@ -98,6 +159,11 @@ export default function PayrollRun() {
   const cashOut = totals.net + totals.federalDeposit + totals.pretax + totals.futa + totals.suta
   const blocking = checks.filter((c) => c.severity === 'critical').length
   const resultOf = (id: string) => results.find((r) => r.employeeId === id)!
+  const eff = (e: Employee) => effectiveEmployee(e, time[e.id], companySchedule.frequency)
+  const saveRateAsDefault = (e: Employee) => {
+    upsertEmployee({ ...e, rate: eff(e).rate })
+    setTime(e.id, { rate: undefined })
+  }
 
   const checksByEmployee = useMemo(() => {
     const m = new Map<string, CheckItem[]>()
@@ -195,7 +261,7 @@ export default function PayrollRun() {
             return (
               <div key={r.employeeId} className="print-stub">
                 <h2>{e.name} · {formatDate(pay, locale)}</h2>
-                <PayStub employee={e} result={r} time={done.time[e.id]} />
+                <PayStub employee={effectiveEmployee(e, done.time[e.id], companySchedule.frequency)} result={r} time={done.time[e.id]} />
               </div>
             )
           })}
@@ -244,7 +310,7 @@ export default function PayrollRun() {
               <thead>
                 <tr>
                   <th>{t('직원', 'Employee')}</th>
-                  <th className="num">{t('급여 기준', 'Pay rate')}</th>
+                  <th className="num">{t('시급 / 회당 급여', 'Rate / per check')}</th>
                   <th className="num">{t('정규 시간', 'Regular hrs')}</th>
                   <th className="num">{t('OT 시간', 'OT hrs')}</th>
                   <th className="num">{t('현금 팁', 'Cash tips')}</th>
@@ -280,7 +346,7 @@ export default function PayrollRun() {
                             </div>
                           </div>
                         </td>
-                        <RateCell e={e} />
+                        <RateInputCell e={e} entry={time[e.id]} row={rows.indexOf(e)} onChange={(rate) => setTime(e.id, { rate })} onSaveDefault={() => saveRateAsDefault(e)} />
                         <td className="num" data-label={t('정규 시간', 'Regular hrs')}>
                           <CellInput row={ri} col={0} disabled={salary} label={`${e.name} ${t('정규 시간', 'regular hours')}`} value={h.regular} onChange={(v) => setTime(e.id, { regular: v })} />
                         </td>
@@ -348,7 +414,7 @@ export default function PayrollRun() {
             </table>
           </div>
           <p className="table-hint muted small">
-            {t('Enter 또는 ↑↓ 키로 위아래 칸을 이동할 수 있어요. 팁 직원은 팁 포함 시간당 $7.25가 안 되면 자동으로 보전됩니다.', 'Use Enter or ↑↓ to move between rows. Tipped staff are topped up to $7.25/h automatically.')}
+            {t('시급·회당 급여는 이번 회차에만 적용되고, "기본값으로 저장"을 누르면 직원 정보에도 반영돼요. Enter 또는 ↑↓ 키로 위아래 칸을 이동할 수 있어요.', 'Rates apply to this run only; "Save as default" updates the employee. Use Enter or ↑↓ to move between rows.')}
           </p>
         </section>
 
@@ -447,7 +513,7 @@ export default function PayrollRun() {
                           </div>
                         </div>
                       </td>
-                      <RateCell e={e} hours={time[e.id]} />
+                      <RateCell e={e} entry={time[e.id]} />
                       <td className="num" data-label={t('총급여', 'Gross')}>{formatCurrency(r.grossPay)}</td>
                       <td className="num" data-label={t('직원 세금', 'Employee taxes')}>{formatCurrency(r.federalWithholding + r.socialSecurity + r.medicare)}</td>
                       <td className="num" data-label={t('공제·현금 팁', 'Deductions & cash tips')}>{formatCurrency(r.pretaxDeductions + r.cashTips)}</td>
@@ -458,7 +524,7 @@ export default function PayrollRun() {
                     {isOpen && (
                       <tr className="detail-row">
                         <td colSpan={8}>
-                          <PayStub employee={e} result={r} time={time[e.id]} />
+                          <PayStub employee={eff(e)} result={r} time={time[e.id]} />
                         </td>
                       </tr>
                     )}

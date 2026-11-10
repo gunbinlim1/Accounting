@@ -52,6 +52,18 @@ export function runChecks({ employees, time, results, previous, ytdGross, standa
         en: `${n}'s rate is below the $7.25 minimum wage.` })
     }
 
+    if (e.payType === 'salary') {
+      const annual = e.rate
+      if (annual <= 0) {
+        add({ id: `${e.id}-nosalary`, severity: 'critical', employeeId: e.id,
+          ko: `${n}님의 급여가 $0입니다.`, en: `${n}'s salary is $0.` })
+      } else if (annual < cfg.exemptSalaryWeekly * 52) {
+        add({ id: `${e.id}-exempt`, severity: 'warning', employeeId: e.id,
+          ko: `${n}님의 연봉 ${formatCurrency(annual)}이 FLSA 면제 기준(주 $684, 연 $35,568)보다 낮아 초과근무 수당 대상일 수 있습니다.`,
+          en: `${n}'s salary ${formatCurrency(annual)} is below the FLSA exempt threshold ($684/week, $35,568/yr), so they may be owed overtime.` })
+      }
+    }
+
     // ── 근무시간·팁
     if (e.payType !== 'salary' && h) {
       if (h.regular + h.overtime === 0) {

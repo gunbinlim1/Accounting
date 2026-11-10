@@ -6,7 +6,7 @@ import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config
 import { defaultTimeFor } from '../config/restaurantRoles'
 import { formatCurrency, formatPercent, formatSigned } from '../lib/format'
 import { roleLabel } from '../lib/labels'
-import { calculatePayroll, roundCents, tipCreditRate } from '../lib/payroll'
+import { calculatePayroll, effectiveEmployee, roundCents, tipCreditRate } from '../lib/payroll'
 import { segmentsOf } from '../lib/segments'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
@@ -50,13 +50,14 @@ export default function Simulator() {
     const currentTph = hours > 0 ? curTips / hours : 0
     const cashShare = curTips > 0 ? cur.cashTips / curTips : 0.25
     const ytd = { gross: ytdGross[employee.id] ?? 0 }
-    const base = calculatePayroll({ employee, payFrequency: freq, time: cur, ytd })
+    const eff = effectiveEmployee(employee, cur, freq)
+    const base = calculatePayroll({ employee: eff, payFrequency: freq, time: cur, ytd })
 
     const ot = overtime ?? cur.overtime
     const tph = tipsPerHour ?? currentTph
     const scenarioTips = tph * (cur.regular + ot)
     const scenario = calculatePayroll({
-      employee: { ...employee, rate: roundCents(employee.rate * (1 + raise / 100)), pretaxDeferralRate: (deferral ?? employee.pretaxDeferralRate * 100) / 100 },
+      employee: { ...eff, rate: roundCents(eff.rate * (1 + raise / 100)), pretaxDeferralRate: (deferral ?? employee.pretaxDeferralRate * 100) / 100 },
       payFrequency: freq,
       time: { regular: cur.regular, overtime: ot, cashTips: scenarioTips * cashShare, cardTips: scenarioTips * (1 - cashShare) },
       ytd,

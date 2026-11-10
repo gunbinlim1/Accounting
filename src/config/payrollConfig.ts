@@ -29,6 +29,8 @@ export const payrollConfig = {
   tippedCashWage: 2.13,
   maxTipCredit: 5.12,
   overtimeMultiplier: 1.5,
+  /** FLSA 화이트칼라 면제 최저 급여 (주 $684 = 연 $35,568) */
+  exemptSalaryWeekly: 684,
   /** Section 45B 크레딧 기준 최저임금 (1/1/2007 기준 $5.15) */
   section45BWage: 5.15,
 } as const

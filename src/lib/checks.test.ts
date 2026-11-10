@@ -34,3 +34,12 @@ describe('runChecks', () => {
     expect(c.some((x) => x.severity === 'critical')).toBe(true)
   })
 })
+
+describe('연봉 면제 기준', () => {
+  it('연 $35,568 미만 연봉은 경고', () => {
+    const mgr = { ...employees.find((e) => e.payType === 'salary')!, rate: 30_000 }
+    const r = [calculatePayroll({ employee: mgr, payFrequency: 'biweekly' })]
+    const c = runChecks({ employees: [mgr], time: {}, results: r, ytdGross: {}, standardHours: 80, today })
+    expect(c.some((x) => x.id === `${mgr.id}-exempt` && x.severity === 'warning')).toBe(true)
+  })
+})

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { companySchedule } from './config/payrollConfig'
 import { defaultTimeFor } from './config/restaurantRoles'
 import { sampleEmployees } from './data/sampleEmployees'
-import { calculatePayroll } from './lib/payroll'
+import { calculatePayroll, effectiveEmployee } from './lib/payroll'
 import { nextPayDate, parseISODate, previousPayDate, toISODate } from './lib/schedule'
 import { ytdGrossFor } from './lib/ytd'
 import type { Employee, PayRun, PayrollResult, TimeEntry } from './types'
@@ -24,7 +24,7 @@ function computeResults(employees: Employee[], time: Record<string, TimeEntry>, 
     .map((employee) => {
       const g = ytd[employee.id] ?? 0
       return calculatePayroll({
-        employee,
+        employee: effectiveEmployee(employee, time[employee.id], companySchedule.frequency),
         payFrequency: companySchedule.frequency,
         time: time[employee.id] ?? emptyTime,
         ytd: { gross: g, futaWages: g, sutaWages: g },

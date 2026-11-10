@@ -819,6 +819,34 @@ kbd {
   .run-table.review .rate-cell::before { display: none; }
 }
 
+
+/* 급여 실행: 시급·회당 급여 입력 */
+.rate-cell.editable { min-width: 10rem; }
+.rate-edit {
+  display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 0.15rem; width: 8.6rem;
+  padding: 0.25rem 0.55rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rate-edit:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.rate-edit.changed { border-color: var(--accent); background: var(--accent-soft); }
+.rate-edit > span { color: var(--muted); font-weight: 650; font-size: 1rem; }
+.rate-edit input {
+  width: 100%; min-width: 0; border: 0; outline: none; background: none; text-align: right; padding: 0;
+  font-size: 1.15rem; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; -moz-appearance: textfield;
+}
+.rate-edit input::-webkit-outer-spin-button, .rate-edit input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rate-edit small { font-size: 0.75rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.rate-cell .rate-sub { margin-top: 0.2rem; display: flex; align-items: center; justify-content: flex-end; gap: 0.35rem; flex-wrap: wrap; }
+.rate-changed { display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.2rem; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+.rate-changed button { border: 0; background: none; padding: 0; font-size: 0.72rem; font-weight: 650; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.tag.info { background: var(--accent-soft); color: var(--accent); margin-top: 0; }
+@media (max-width: 760px) {
+  .run-table .rate-cell.editable { flex-direction: column !important; align-items: stretch !important; }
+  .run-table .rate-cell.editable::before { display: block; content: attr(data-label); font-size: 0.72rem; color: var(--muted); font-weight: 600; }
+  .run-table .rate-edit { width: 100%; }
+  .run-table .rate-cell.editable .rate-sub, .run-table .rate-changed { justify-content: flex-start; }
+}
+
 /* ───────── Print: pay stubs only ───────── */
 @media print {
   .sidebar, .mobile-top, .bottom-nav, .success, .action-bar { display: none !important; }

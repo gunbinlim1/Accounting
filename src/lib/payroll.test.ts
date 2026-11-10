@@ -93,3 +93,18 @@ describe('sumResults', () => {
     expect(t.federalDeposit).toBeCloseTo(a.federalWithholding + 2 * (a.socialSecurity + a.medicare), 2)
   })
 })
+
+describe('회차별 급여 금액 (rate override)', () => {
+  it('시급 직원은 입력한 시급을 그대로 사용', async () => {
+    const { effectiveEmployee } = await import('./payroll')
+    expect(effectiveEmployee(cook, { rate: 18 }, 'biweekly').rate).toBe(18)
+    expect(effectiveEmployee(cook, {}, 'biweekly').rate).toBe(16)
+  })
+
+  it('연봉 직원은 회당 금액 × 26 = 연봉', async () => {
+    const { effectiveEmployee } = await import('./payroll')
+    const e = effectiveEmployee(manager, { rate: 2_200 }, 'biweekly')
+    expect(e.rate).toBe(57_200)
+    expect(run(e).grossPay).toBe(2_200)
+  })
+})
