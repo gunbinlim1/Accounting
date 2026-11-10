@@ -815,6 +815,8 @@ kbd {
   .run-table .rate-cell { grid-column: 1 / -1; flex-direction: row !important; align-items: baseline !important; justify-content: space-between; gap: 0.5rem; padding: 0.15rem 0 0.25rem; border-bottom: 1px dashed var(--border); margin-bottom: 0.15rem; }
   .run-table .rate-cell::before { display: none; }
   .run-table .rate-cell .rate-main { font-size: 1.25rem; }
+  .run-table.review tbody tr:not(.detail-row) td.rate-cell { flex-direction: row; }
+  .run-table.review .rate-cell::before { display: none; }
 }
 
 /* ───────── Print: pay stubs only ───────── */

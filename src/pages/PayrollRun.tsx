@@ -51,6 +51,27 @@ function CellInput({ value, onChange, money, row, col, label, disabled }: {
   )
 }
 
+/** 시급·연봉을 크게 표시하는 셀. hours를 주면 아래 줄에 실제 근무시간을 표시 */
+function RateCell({ e, hours }: { e: Employee; hours?: TimeEntry }) {
+  const { t } = usePrefs()
+  const salary = e.payType === 'salary'
+  const perCheck = e.rate / periodsPerYear[companySchedule.frequency]
+  let sub: string
+  if (salary) sub = t(`회당 ${formatCurrency(perCheck)}`, `${formatCurrency(perCheck)} per check`)
+  else if (hours) sub = `${hours.regular + hours.overtime}h${hours.overtime ? ` · OT ${hours.overtime}h` : ''}${e.payType === 'tipped' ? t(' · + 팁', ' · + tips') : ''}`
+  else if (e.payType === 'tipped') sub = t(`+ 팁 · OT ${formatCurrency(tippedOvertimeRate(e.rate))}`, `+ tips · OT ${formatCurrency(tippedOvertimeRate(e.rate))}`)
+  else sub = `OT ${formatCurrency(e.rate * cfg.overtimeMultiplier)}`
+  return (
+    <td className="num rate-cell" data-label={t('급여 기준', 'Pay rate')}>
+      <span className="rate-main">
+        {salary ? formatCurrency(e.rate).replace(/\.00$/, '') : formatCurrency(e.rate)}
+        <small>{salary ? t('/년', '/yr') : '/h'}</small>
+      </span>
+      <span className="rate-sub">{sub}</span>
+    </td>
+  )
+}
+
 const sevIcon = {
   critical: <OctagonAlert size={15} aria-hidden />,
   warning: <TriangleAlert size={15} aria-hidden />,
@@ -259,19 +280,7 @@ export default function PayrollRun() {
                             </div>
                           </div>
                         </td>
-                        <td className="num rate-cell" data-label={t('급여 기준', 'Pay rate')}>
-                          <span className="rate-main">
-                            {salary ? formatCurrency(e.rate).replace(/\.00$/, '') : formatCurrency(e.rate)}
-                            <small>{salary ? t('/년', '/yr') : '/h'}</small>
-                          </span>
-                          <span className="rate-sub">
-                            {salary
-                              ? t(`회당 ${formatCurrency(e.rate / periodsPerYear[companySchedule.frequency])}`, `${formatCurrency(e.rate / periodsPerYear[companySchedule.frequency])} per check`)
-                              : e.payType === 'tipped'
-                                ? t(`+ 팁 · OT ${formatCurrency(tippedOvertimeRate(e.rate))}`, `+ tips · OT ${formatCurrency(tippedOvertimeRate(e.rate))}`)
-                                : `OT ${formatCurrency(e.rate * cfg.overtimeMultiplier)}`}
-                          </span>
-                        </td>
+                        <RateCell e={e} />
                         <td className="num" data-label={t('정규 시간', 'Regular hrs')}>
                           <CellInput row={ri} col={0} disabled={salary} label={`${e.name} ${t('정규 시간', 'regular hours')}`} value={h.regular} onChange={(v) => setTime(e.id, { regular: v })} />
                         </td>
@@ -413,6 +422,7 @@ export default function PayrollRun() {
             <thead>
               <tr>
                 <th>{t('직원', 'Employee')}</th>
+                <th className="num">{t('급여 기준', 'Pay rate')}</th>
                 <th className="num">{t('총급여', 'Gross')}</th>
                 <th className="num">{t('직원 세금', 'Employee taxes')}</th>
                 <th className="num">{t('공제·현금 팁', 'Deductions & cash tips')}</th>
@@ -437,6 +447,7 @@ export default function PayrollRun() {
                           </div>
                         </div>
                       </td>
+                      <RateCell e={e} hours={time[e.id]} />
                       <td className="num" data-label={t('총급여', 'Gross')}>{formatCurrency(r.grossPay)}</td>
                       <td className="num" data-label={t('직원 세금', 'Employee taxes')}>{formatCurrency(r.federalWithholding + r.socialSecurity + r.medicare)}</td>
                       <td className="num" data-label={t('공제·현금 팁', 'Deductions & cash tips')}>{formatCurrency(r.pretaxDeductions + r.cashTips)}</td>
@@ -446,7 +457,7 @@ export default function PayrollRun() {
                     </tr>
                     {isOpen && (
                       <tr className="detail-row">
-                        <td colSpan={7}>
+                        <td colSpan={8}>
                           <PayStub employee={e} result={r} time={time[e.id]} />
                         </td>
                       </tr>
@@ -458,6 +469,7 @@ export default function PayrollRun() {
             <tfoot>
               <tr>
                 <td>{t('합계', 'Total')}</td>
+                <td />
                 <td className="num">{formatCurrency(totals.gross)}</td>
                 <td className="num">{formatCurrency(totals.federal + totals.socialSecurity + totals.medicare)}</td>
                 <td className="num">{formatCurrency(totals.pretax + totals.cashTips)}</td>
