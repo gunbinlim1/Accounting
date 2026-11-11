@@ -1,8 +1,7 @@
 name: Deploy to GitHub Pages
 
+# 정식 사이트는 Vercel(main 자동 배포). GitHub Pages는 필요할 때만 수동 실행
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

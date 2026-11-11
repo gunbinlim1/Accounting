@@ -35,8 +35,8 @@ select vault.create_secret('<32자 이상 임의 문자열>', 'payroll_field_key
 - **Providers → Email**: 켜기, *Confirm email* 켜기.
 - **Multi-Factor**: TOTP(인증 앱) 켜기 — 포털은 2단계 인증을 마친 세션만 데이터에 접근할 수 있게 DB에서 막혀 있습니다.
 - **URL Configuration**:
-  - Site URL: `https://gunbinlim1.github.io/Accounting/`
-  - Redirect URLs: `https://gunbinlim1.github.io/Accounting/login` (로컬 개발 시 `http://localhost:5173/login`도 추가)
+  - Site URL: Vercel 본 사이트 주소 (Vercel → `accounting` 프로젝트 → Domains의 Production 도메인, 예 `https://accounting-jae-jin-yang-cpa-pc.vercel.app`)
+  - Redirect URLs: `https://*-jae-jin-yang-cpa-pc.vercel.app/**` (본 사이트와 브랜치 미리보기 모두 포함), 따로 연결한 도메인이 있으면 `https://<도메인>/**`도 추가 (로컬 개발 시 `http://localhost:5173/**`)
 - 비밀번호 최소 길이: 10 이상 권장.
 - 실제 운영 전에는 **SMTP**(Authentication → Emails)를 회계법인 도메인 메일로 바꾸세요. 기본 메일은 발송량 제한이 있습니다.
 

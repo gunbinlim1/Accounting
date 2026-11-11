@@ -7,15 +7,15 @@
 - 목표: 고객이 포털에 로그인해 직원(W-4·I-9)과 급여(근무·팁·Fringe)를 입력·제출 → 회계법인이 검토·처리·지급·세금 납부·분기/연말 신고(941, TWC C-3, 940, W-2) → 고객은 내역·세금 안내 확인, 직원은 명세서·W-2 열람.
 - 기획서 문서(Claude Docs): https://claude.ai/artifact/1iHDZw1zgqF1zqD5sWPC7z — 개요, 전체 흐름 다이어그램, 신고 구조 결정, 기능 명세, Fringe 규칙표, 세금 일정, 보안, 로드맵, 결정 필요 사항. 열린 질문(PEO 용도 확인)이 댓글로 달려 있음.
 
-## 현재 상태 (Supabase 전환 — 작업 브랜치)
-- 배포: https://gunbinlim1.github.io/Accounting/ — `main`에 푸시하면 GitHub Actions(`.github/workflows/deploy.yml`)가 Pages로 자동 배포. CI(`ci.yml`)는 lint·test·build + DB 시험(`scripts/test-db.sh`).
-- 저장소: https://github.com/gunbinlim1/Accounting (공개). 지금까지 `main`에 직접 커밋·푸시해 왔음(사용자 승인 흐름). Supabase 전환은 `claude/serene-noether-jl1r8o` 브랜치에 있고, **main 반영은 사용자 확인 후**(반영하면 Supabase 설정 전까지 배포 사이트가 "데이터베이스 연결 필요" 화면이 됨).
+## 현재 상태 (Supabase + Vercel)
+- 배포: **정식 사이트 = Vercel `jae-jin-yang-cpa-pc/accounting` 프로젝트의 Production(`main`)** (사용자 결정). `main` 푸시 → Vercel 자동 배포, 브랜치마다 미리보기 주소(`accounting-git-<브랜치>-jae-jin-yang-cpa-pc.vercel.app`). 라우팅·보안 헤더는 `vercel.json`. GitHub Pages 워크플로(`deploy.yml`)는 수동 실행만 남김(옛 데모가 github.io에 남아 있을 수 있음). CI(`ci.yml`)는 lint·test·build + DB 시험(`scripts/test-db.sh`).
+- 저장소: https://github.com/gunbinlim1/Accounting (공개). 지금까지 `main`에 직접 커밋·푸시해 왔음(사용자 승인 흐름). Supabase 전환은 2026-11-11 사용자 확인 후 `main`에 반영됨.
 - **데이터: Supabase 전용** (사용자 결정: 데모·브라우저 저장 제거, 정규화 테이블). 설정 순서는 `docs/SUPABASE.md`. 환경 변수 `VITE_SUPABASE_URL`·`VITE_SUPABASE_ANON_KEY`·`VITE_FIRM_NAME`(배포는 저장소 Variables `SUPABASE_URL`·`SUPABASE_ANON_KEY`·`FIRM_NAME`). 설정이 없으면 `SetupNeeded` 화면.
 - DB 구조: `supabase/migrations/20261111000000_payroll_schema.sql` — companies, company_members, firm_staff, employees, employee_secrets(암호화), time_entries, pay_runs, pay_results, payments, tax_deposits, activity, audit_log, 비공개 버킷 `payroll-docs`. RLS: 회계법인 전체 / 고객 자기 회사 / 직원 본인. 모든 접근은 MFA(aal2) 필수. 고객 상태 변경 규칙·제출 잠금은 트리거.
 - 앱 데이터 흐름: `src/portal.tsx`(인증 상태·불러오기·저장 대기열) → 화면은 기존처럼 `updateCompany(id, fn)`으로 CompanyData를 고치고, `src/lib/db/plan.ts`가 바뀐 부분을 DB 쓰기 목록으로 만들어 `src/lib/db/api.ts`가 순서대로 실행(근무 입력은 0.6초 모아서). 실패하면 DB 기준으로 다시 불러옴. 행↔객체 변환은 `src/lib/db/mappers.ts`.
 - 전체 SSN·계좌번호는 화면에서 입력 → `set_employee_secrets` RPC로 암호화 저장 → 화면 상태에서 즉시 제거. 화면엔 뒤 4자리와 `onFile` 표시.
 - 로그인: 이메일+비밀번호 → 인증 앱(TOTP) 등록/코드 → `claim_invites`(이메일로 대표·직원 자동 연결) → 역할 판단. 가입: `/signup`(대표, 회사 정보는 이메일 인증·MFA 후 생성될 때까지 localStorage `payday-pending-company-v1`에 잠시 보관), `/register`(초대받은 직원·대표). 회계법인 직원은 SQL로 `firm_staff` 등록.
-- **Supabase 프로젝트 생성됨**: `payday-portal` (ID `mvnixlpissdrioivjqjy`, us-east-1, 무료 플랜, 조직은 Supabase 커넥터로 확인). 마이그레이션 `payroll_schema` 적용, Vault 키 `payroll_field_key` 서버에서 생성. 권한 시험 47개를 실제 프로젝트에서 롤백 트랜잭션으로 실행해 통과. URL·publishable 키는 `.env.production`(공개용 값). Supabase 커넥터(MCP)로 SQL·마이그레이션 가능. 남은 것: 대시보드 인증 설정(Site URL·Redirect URL), 회계법인 직원 `firm_staff` 등록(가입 후 SQL), 이 브랜치 main 반영.
+- **Supabase 프로젝트 생성됨**: `payday-portal` (ID `mvnixlpissdrioivjqjy`, us-east-1, 무료 플랜, 조직은 Supabase 커넥터로 확인). 마이그레이션 `payroll_schema` 적용, Vault 키 `payroll_field_key` 서버에서 생성. 권한 시험 47개를 실제 프로젝트에서 롤백 트랜잭션으로 실행해 통과. URL·publishable 키는 `.env.production`(공개용 값). Supabase 커넥터(MCP)로 SQL·마이그레이션 가능. 남은 것: 대시보드 인증 설정(Site URL = Vercel 본 사이트, Redirect URLs `https://*-jae-jin-yang-cpa-pc.vercel.app/**`), 회계법인 직원 `firm_staff` 등록(가입 후 SQL).
 - 이 작업 환경(셸)에서는 supabase.co 접속이 막혀 있어 브라우저 로그인은 직접 시험하지 못함. GitHub Actions 변수 설정도 프록시가 막음. 로컬 PostgreSQL + `supabase/tests/supabase_shim.sql`로 마이그레이션·권한 시험(47개), 앱 쪽은 단위 시험과 빈/가짜 설정 빌드로 화면 확인.
 - 2단계 남은 것: 실제 Supabase 프로젝트 연결·검증, 이메일 발송(SMTP), ACH·전자신고, 직원 초대 메일.
 
@@ -46,7 +46,7 @@
 
 ## 작업 방법
 - 확인: `npm run lint && npm test && npm run build` (테스트 50개). 배포 경로 확인은 `BASE_PATH=/Accounting/ npm run build` 후 `dist/index.html`을 `404.html`로 복사해 로컬 서버로 Playwright 점검.
-- 이 환경에서는 `github.io`·`irs.gov` 접속이 막혀 배포 사이트를 직접 열 수 없음 → `gh run list -R gunbinlim1/Accounting`으로 배포 성공 확인.
+- 이 환경에서는 `vercel.app`·`github.io`·`irs.gov` 접속이 막혀 배포 사이트를 직접 열 수 없음 → Vercel 배포 결과는 `gh api repos/gunbinlim1/Accounting/commits/<sha>/statuses`, CI는 `gh run list -R gunbinlim1/Accounting`으로 배포 성공 확인.
 - 복잡한 셸 heredoc(`${}`·백틱 포함)은 안전 검사에 막힐 수 있음 → 스크래치패드에 파이썬 패치 스크립트를 쓰고 실행.
 - Playwright fullPage 스크린샷에서 sticky 사이드바·하단 바가 중간에 보이는 것은 캡처 특성(버그 아님).
 
