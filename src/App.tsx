@@ -26,7 +26,8 @@ export default function App() {
         <BrowserRouter basename={import.meta.env.BASE_URL}>
           <Routes>
             <Route path="login" element={<Login />} />
-            <Route path="signup" element={<CompanySetup mode="client" />} />
+            <Route path="signup" element={<Register variant="client" />} />
+            <Route path="setup" element={<CompanySetup mode="client" />} />
             <Route path="register" element={<Register />} />
             <Route path="firm/login" element={<Login variant="firm" />} />
             <Route path="firm/register" element={<Register variant="firm" />} />

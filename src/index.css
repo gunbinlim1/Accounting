@@ -1303,3 +1303,9 @@ h1 .status-badge { margin-left: 0.5rem; font-size: 0.8rem; position: relative; t
 .new-client-name { display: flex; flex-direction: column; gap: 0.15rem; text-decoration: none; color: var(--text); min-width: 0; }
 .new-client-name small { overflow-wrap: anywhere; }
 @media (max-width: 760px) { .new-client-list li { flex-direction: column; align-items: stretch; } }
+.compact-steps { margin: 0.2rem 0 0.4rem; }
+.compact-steps li > span { display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.6rem; border-radius: 10px; border: 1px solid var(--border); font-size: 0.82rem; color: var(--text-2); background: var(--surface); }
+.compact-steps li.current > span { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 3px var(--accent-soft); }
+.compact-steps li.current .step-dot { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+@media (max-width: 760px) { .compact-steps li > span { flex-direction: column; font-size: 0.74rem; padding: 0.45rem 0.3rem; text-align: center; } }
+.setup-page.narrow .compact-steps li > span { flex-direction: column; text-align: center; gap: 0.25rem; }

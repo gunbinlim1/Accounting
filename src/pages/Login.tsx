@@ -161,7 +161,7 @@ function Shell({ children, variant = 'client' }: { children: ReactNode; variant?
 export default function Login({ variant = 'client' }: { variant?: Variant }) {
   const firm = variant === 'firm'
   const { t } = usePrefs()
-  const { status, session, refreshAuth, logout, email: myEmail, error: portalError } = usePortal()
+  const { status, session, refreshAuth, logout, email: myEmail, error: portalError, intent } = usePortal()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -199,6 +199,7 @@ export default function Login({ variant = 'client' }: { variant?: Variant }) {
         <button className="link-btn" onClick={() => void logout()}><LogOut size={14} aria-hidden /> {t('로그아웃', 'Sign out')}</button>
       </Shell>
     )
+  if (status === 'no_role' && intent === 'client') return <Navigate to="/setup" replace />
   if (status === 'no_role')
     return (
       <Shell>
@@ -207,7 +208,7 @@ export default function Login({ variant = 'client' }: { variant?: Variant }) {
           {t(`${myEmail} 계정에 연결된 회사 포털이 없어요. 회사 정보를 입력해 포털을 만들 수 있어요. 급여명세서를 보려는 직원이라면, 회사에 등록된 이메일인지와 전자 수령 동의 여부를 회사에 확인해 주세요.`,
             `No company portal is linked to ${myEmail}. You can enter your company details to set one up. Employees looking for pay stubs should check that their employer has this email on file with e-delivery consent.`)}
         </p>
-        <Link to="/signup" className="btn primary lg"><Plus size={18} aria-hidden /> {t('회사 포털 만들기', 'Set up my company portal')}</Link>
+        <Link to="/setup" className="btn primary lg"><Plus size={18} aria-hidden /> {t('회사 포털 만들기', 'Set up my company portal')}</Link>
         <button className="link-btn" onClick={() => void logout()}><LogOut size={14} aria-hidden /> {t('로그아웃', 'Sign out')}</button>
       </Shell>
     )
@@ -300,7 +301,7 @@ export default function Login({ variant = 'client' }: { variant?: Variant }) {
           <Link to="/firm/register" className="btn lg signup-link"><UserPlus size={18} aria-hidden /> {t('회계법인 직원 계정 만들기', 'Create a firm staff account')}</Link>
         ) : (
           <>
-            <p className="muted small signup-lead">{t('처음이신가요? 계정을 만들면서 회사 급여 포털을 함께 만들어요.', 'New here? Create your account and your company’s payroll portal together.')}</p>
+            <p className="muted small signup-lead">{t('처음이신가요? 계정을 만든 뒤 회사 급여 포털을 만들어요.', 'New here? Create your account, then set up your company’s payroll portal.')}</p>
             <Link to="/signup" className="btn lg signup-link"><Plus size={18} aria-hidden /> {t('계정 만들기', 'Create an account')}</Link>
             <Link to="/register" className="link-btn small">{t('직원이신가요? 급여명세서 보기 계정 만들기', 'Employee? Create an account to view your pay stubs')}</Link>
           </>

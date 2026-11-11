@@ -127,6 +127,11 @@ export async function createClientCompany(row: Record<string, unknown>): Promise
   return data.id
 }
 
+/** 회사 서류 기록(경로 포함) 저장 */
+export async function updateCompanyDocuments(id: string, documents: unknown[]): Promise<void> {
+  must(await db().from('companies').update({ documents }).eq('id', id))
+}
+
 /** 회계법인: 새로 가입한 고객사를 확인함 */
 export async function markCompanySeen(id: string): Promise<void> {
   must(await db().from('companies').update({ firm_seen_at: new Date().toISOString() }).eq('id', id))

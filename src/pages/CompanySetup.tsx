@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Building2, Check, Languages, MailCheck } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Building2, Check, Languages } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import CompanyDocUpload from '../components/CompanyDocUpload'
@@ -6,10 +6,10 @@ import { FeatureList, IndustryPicker } from '../components/IndustryPicker'
 import { industries, rolesFor } from '../config/industries'
 import type { EinExtract, TwcExtract } from '../lib/companyDocs'
 import { industryLabel, payLabel, roleLabel } from '../lib/labels'
-import { createOwnCompany } from '../lib/db/api'
+import { createOwnCompany, updateCompanyDocuments, uploadDoc } from '../lib/db/api'
 import { companyToRow } from '../lib/db/mappers'
-import { firmName, supabase } from '../lib/supabase'
-import { savePendingCompany, usePortal } from '../portal'
+import { firmName } from '../lib/supabase'
+import { usePortal } from '../portal'
 import SetupNeeded from './SetupNeeded'
 import { usePrefs } from '../prefs'
 import type { Company, CompanyDoc, DepositSchedule, Industry } from '../types'
@@ -41,14 +41,12 @@ interface Draft {
   depositSchedule: DepositSchedule
   ownerName: string
   ownerEmail: string
-  password: string
-  passwordConfirm: string
   documents: CompanyDoc[]
 }
 
 const blank: Draft = {
   industry: null, tipsEnabled: false, legalName: '', dba: '', ein: '', phone: '', street: '', city: 'Houston', state: 'TX', zip: '',
-  twcAccount: '', sutaRate: '2.7', depositSchedule: 'semiweekly', ownerName: '', ownerEmail: '', password: '', passwordConfirm: '', documents: [],
+  twcAccount: '', sutaRate: '2.7', depositSchedule: 'semiweekly', ownerName: '', ownerEmail: '', documents: [],
 }
 
 
@@ -60,15 +58,14 @@ const blank: Draft = {
  */
 export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
   const { t, lang, toggleLang } = usePrefs()
-  const { companies, createCompany, status, email: signedInEmail, refreshAuth } = usePortal()
+  const { companies, createCompany, status, email: signedInEmail, refreshAuth, logout } = usePortal()
   const navigate = useNavigate()
   // 이미 로그인한 계정이면 그 이메일이 대표 이메일
-  const [d, setD] = useState<Draft>(() => ({ ...blank, ownerEmail: mode === 'client' && status === 'no_role' ? signedInEmail : '' }))
+  const [d, setD] = useState<Draft>(() => ({ ...blank, ownerEmail: mode === 'client' ? signedInEmail : '' }))
   const [step, setStep] = useState(0)
   const [showErrors, setShowErrors] = useState(false)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState('')
-  const [sent, setSent] = useState(false)
   /** 회계법인이 고객사를 만들 때 함께 올릴 서류 파일 */
   const [files, setFiles] = useState<Partial<Record<CompanyDoc['kind'], File>>>({})
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }))
@@ -91,10 +88,6 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
       if (!/\S+@\S+\.\S+/.test(email)) e.ownerEmail = t('이메일 형식을 확인하세요', 'Check the email')
       else if (mode === 'firm' && companies.some((c) => c.company.ownerEmail.toLowerCase() === email))
         e.ownerEmail = t('이미 다른 고객사의 대표 이메일이에요', 'Another client already uses this owner email')
-      if (mode === 'client' && status !== 'no_role') {
-        if (d.password.length < 10) e.password = t('10자 이상', 'At least 10 characters')
-        else if (d.password !== d.passwordConfirm) e.passwordConfirm = t('비밀번호가 일치하지 않아요', 'Passwords don’t match')
-      }
     }
     return e
   }, [d, step, t, companies, mode, status])
@@ -140,26 +133,18 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
         navigate(`/firm/c/${id}`)
         return
       }
-      // 대표: 회사 정보는 (서류 파일 없이) 잠시 보관 → 이메일 인증·2단계 인증 후 회사 생성
+      // 로그인한 계정(이메일 인증·인증 앱 완료)으로 회사 포털을 만들고 대표로 연결 → 회계법인에 새 고객사 알림
       const row = { ...companyToRow(company), documents: [] }
-      if (status === 'no_role') {
-        // 이미 로그인한 계정 (예: 가입했지만 회사가 없음)
-        await createOwnCompany(row)
-        await refreshAuth()
-        navigate('/')
-        return
+      const id = await createOwnCompany(row)
+      // 회사 정보 화면에서 볼 수 있게 올린 SS-4·TWC 파일 보관
+      const docs: CompanyDoc[] = []
+      for (const doc of company.documents ?? []) {
+        const file = files[doc.kind]
+        docs.push(file ? { ...doc, path: await uploadDoc(id, 'company', file).catch(() => undefined) } : doc)
       }
-      savePendingCompany({ email: company.ownerEmail, row })
-      const { data, error } = await supabase!.auth.signUp({
-        email: company.ownerEmail,
-        password: d.password,
-        options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}login` },
-      })
-      if (error) throw error
-      if (data.session) {
-        await refreshAuth()
-        navigate('/login')
-      } else setSent(true)
+      if (docs.length) await updateCompanyDocuments(id, docs)
+      await refreshAuth()
+      navigate('/')
     } catch (e) {
       setFailure(e instanceof Error ? e.message : String(e))
     } finally {
@@ -198,9 +183,9 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
         {mode === 'firm' ? (
           <Link to="/firm" className="back-link"><ArrowLeft size={16} aria-hidden /> {t('제출 대기열', 'Payroll queue')}</Link>
         ) : (
-          <Link to="/login" className="back-link"><ArrowLeft size={16} aria-hidden /> {t('로그인', 'Sign in')}</Link>
+          <button type="button" className="back-link" onClick={() => void logout()}><ArrowLeft size={16} aria-hidden /> {t('로그아웃', 'Sign out')}</button>
         )}
-        <h1>{mode === 'firm' ? t('새 고객사 추가', 'Add a client') : t('계정 만들기 · 회사 급여 포털', 'Create an account · company payroll portal')}</h1>
+        <h1>{mode === 'firm' ? t('새 고객사 추가', 'Add a client') : t('회사 급여 포털 만들기', 'Set up your company payroll portal')}</h1>
         <p className="lead">
           {t('먼저 어떤 종류의 회사인지 알려 주세요. 업종에 맞춰 직무, 급여 형태(시급·연봉·팁)와 급여 입력 화면이 준비됩니다.',
             'Start with what kind of business this is. Roles, pay types (hourly, salary, tips) and the payroll screen are set up to match.')}
@@ -305,28 +290,18 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
                 </div>
               </Field>
             </div>
-            <h3 className="sub">{t('대표 · 포털 로그인', 'Owner · portal sign-in')}</h3>
+            <h3 className="sub">{t('대표·담당자', 'Owner · contact')}</h3>
             <div className="form-grid">
               <Field label={t('대표자 이름', 'Owner name')} error={err('ownerName')}>
                 <input value={d.ownerName} onChange={(e) => set('ownerName', e.target.value)} />
               </Field>
               <Field
-                label={mode === 'firm' ? t('대표 이메일 (초대)', 'Owner email (invite)') : t('로그인 이메일', 'Sign-in email')}
+                label={mode === 'firm' ? t('대표 이메일 (초대)', 'Owner email (invite)') : t('로그인 이메일 (가입한 계정)', 'Sign-in email (your account)')}
                 error={err('ownerEmail')}
                 hint={mode === 'firm' ? t('대표가 이 이메일로 가입하면 이 회사에 자동 연결돼요', 'The owner is linked automatically on sign-up with this email') : undefined}
               >
-                <input type="email" value={d.ownerEmail} onChange={(e) => set('ownerEmail', e.target.value)} disabled={mode === 'client' && status === 'no_role'} />
+                <input type="email" value={d.ownerEmail} onChange={(e) => set('ownerEmail', e.target.value)} disabled={mode === 'client'} />
               </Field>
-              {mode === 'client' && status !== 'no_role' && (
-                <>
-                  <Field label={t('비밀번호 (10자 이상)', 'Password (10+ characters)')} error={err('password')}>
-                    <input type="password" autoComplete="new-password" value={d.password} onChange={(e) => set('password', e.target.value)} />
-                  </Field>
-                  <Field label={t('비밀번호 확인', 'Confirm password')} error={err('passwordConfirm')}>
-                    <input type="password" autoComplete="new-password" value={d.passwordConfirm} onChange={(e) => set('passwordConfirm', e.target.value)} />
-                  </Field>
-                </>
-              )}
             </div>
           </>
         )}
@@ -346,7 +321,7 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
             <p className="muted small">
               {mode === 'firm'
                 ? t('만든 뒤 대표에게 이 이메일로 "초대받은 계정 만들기"에서 가입하도록 알려 주세요. 가입하면 이 회사에 자동 연결되고, 회사 정보 화면에서 IRS 8655·TWC·계좌 인출 위임에 서명할 수 있어요. (초대 메일 자동 발송은 다음 단계)', 'After creating it, ask the owner to sign up with this email via “Create an invited account”. They’re linked automatically and can sign the 8655, TWC and bank-debit authorizations on the Company page. (Automatic invite emails come later.)')
-                : t('만들면 인증 메일이 가요. 이메일 인증 → 로그인 → 인증 앱 등록을 마치면 회사 포털이 만들어지고 홈으로 이동하며, 회계법인에 새 고객사 알림이 갑니다. 올린 SS-4·TWC 파일은 회사 정보 화면에서 보관용으로 다시 올려 주세요.', 'We’ll email you a confirmation link. After you confirm, sign in and set up your authenticator app, the portal is created, you land on the home page, and your CPA firm is notified. Upload the SS-4/TWC files again from the Company page to keep them on file.')}
+                : t('만들면 회사 포털이 열리고 홈 화면으로 이동해요. 회계법인에 새 고객사 알림이 갑니다. 다음으로 직원을 등록하고 회사 정보 화면에서 IRS 8655·TWC·계좌 인출 위임에 서명해 주세요.', 'Your portal opens and you land on the home page; your CPA firm is notified. Next, add employees and sign the 8655, TWC and bank-debit authorizations on the Company page.')}
             </p>
           </>
         )}
@@ -360,7 +335,7 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
             <button type="button" className="btn primary" onClick={next}>{t('다음', 'Next')} <ArrowRight size={18} aria-hidden /></button>
           ) : (
             <button type="button" className="btn primary" onClick={() => void create()} disabled={busy} data-testid="create-portal">
-              <Check size={18} aria-hidden /> {mode === 'firm' ? t('고객사 만들기', 'Create client') : t('계정·포털 만들기', 'Create account & portal')}
+              <Check size={18} aria-hidden /> {mode === 'firm' ? t('고객사 만들기', 'Create client') : t('회사 포털 만들기', 'Create portal')}
             </button>
           )}
         </div>
@@ -368,28 +343,18 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
     </>
   )
 
-  const sentView = (
-    <section className="card form-card">
-      <h1><MailCheck size={22} aria-hidden /> {t('인증 메일을 보냈어요', 'Check your email')}</h1>
-      <p className="lead">
-        {t(`${d.ownerEmail}로 보낸 링크를 눌러 이메일을 인증한 뒤 같은 브라우저에서 로그인하세요. 인증 앱을 등록하면 회사 포털이 만들어집니다.`,
-          `Click the link we sent to ${d.ownerEmail}, then sign in from this browser. Your portal is created once you set up the authenticator app.`)}
-      </p>
-      <Link to="/login" className="btn primary lg">{t('로그인으로', 'Go to sign in')}</Link>
-    </section>
-  )
-
   if (mode === 'firm') return <div className="page">{body}</div>
   if (status === 'unconfigured') return <SetupNeeded />
-  // 로그인 중이거나 이미 회사가 있는 계정은 로그인 화면이 알맞은 곳으로 보냄
-  if (status === 'ready' || status === 'mfa' || status === 'recovery' || status === 'error') return <Navigate to="/login" replace />
+  // 회사 포털은 로그인(이메일 인증·인증 앱)까지 마친 계정만 만들 수 있음
+  if (status === 'signed_out') return <Navigate to="/signup" replace />
+  if (status !== 'no_role' && status !== 'loading') return <Navigate to="/login" replace />
   return (
     <div className="setup-page">
       <div className="setup-top">
         <div className="brand"><span className="brand-mark">P</span><span>Payday</span></div>
         <button className="btn sm" onClick={toggleLang}><Languages size={16} aria-hidden /> {lang === 'ko' ? 'English' : '한국어'}</button>
       </div>
-      <div className="page">{sent ? sentView : body}</div>
+      <div className="page">{body}</div>
       <p className="muted small"><Building2 size={14} aria-hidden /> {t(`${firmName} 고객 전용 포털`, `${firmName} client portal`)}</p>
     </div>
   )

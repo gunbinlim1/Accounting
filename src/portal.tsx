@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { companySchedule } from './config/payrollConfig'
-import { createClientCompany, createOwnCompany, deleteCompany, loadCompanies, resolveSession, runWrite, uploadDoc } from './lib/db/api'
+import { createClientCompany, deleteCompany, loadCompanies, resolveSession, runWrite, uploadDoc } from './lib/db/api'
 import { companyToRow, withoutSecrets } from './lib/db/mappers'
 import { planWrites, type Write } from './lib/db/plan'
 import { nextPayDate, parseISODate, toISODate } from './lib/schedule'
@@ -21,37 +21,16 @@ export const currentPayDate = (from = new Date()) =>
  */
 export type AuthStatus = 'loading' | 'unconfigured' | 'signed_out' | 'mfa' | 'recovery' | 'no_role' | 'ready' | 'error'
 
-/** 대표가 가입하면서 입력한 회사 정보 — 이메일 인증·2단계 인증을 마친 뒤 회사를 만들 때까지 잠시 보관 (민감 정보 없음) */
-const PENDING_KEY = 'payday-pending-company-v1'
-export interface PendingCompany {
-  email: string
-  row: Record<string, unknown>
-}
-export const savePendingCompany = (p: PendingCompany) => {
-  try {
-    localStorage.setItem(PENDING_KEY, JSON.stringify(p))
-  } catch {
-    /* storage unavailable */
-  }
-}
-const takePendingCompany = (email: string): PendingCompany | null => {
-  try {
-    const raw = localStorage.getItem(PENDING_KEY)
-    if (!raw) return null
-    const p = JSON.parse(raw) as PendingCompany
-    if (p.email.toLowerCase() !== email.toLowerCase()) return null
-    localStorage.removeItem(PENDING_KEY)
-    return p
-  } catch {
-    return null
-  }
-}
+/** 가입 목적 (가입 시 user_metadata.intent) — 회사가 없을 때 어디로 보낼지 정함 */
+export type SignupIntent = 'client' | 'employee' | 'firm'
 
 interface Portal {
   status: AuthStatus
   session: Session | null
   /** 로그인한 계정 이메일 (역할이 없어도) */
   email: string
+  /** 가입 목적: client면 회사가 없을 때 회사 포털 만들기로 안내 */
+  intent: SignupIntent
   companies: CompanyData[]
   /** 저장 중인 변경이 있음 */
   saving: boolean
@@ -76,6 +55,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>(supabaseConfigured ? 'loading' : 'unconfigured')
   const [session, setSession] = useState<Session | null>(null)
   const [email, setEmail] = useState('')
+  const [intent, setIntent] = useState<SignupIntent>('client')
   const [companies, setCompanies] = useState<CompanyData[]>([])
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -100,13 +80,13 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         return
       }
       setEmail(data.session.user.email ?? '')
+      const meta = data.session.user.user_metadata as { intent?: SignupIntent } | undefined
+      setIntent(meta?.intent ?? 'client')
       const aal = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
       if (aal.data?.currentLevel !== 'aal2') {
         setStatus('mfa')
         return
       }
-      const pendingCompany = takePendingCompany(data.session.user.email ?? '')
-      if (pendingCompany) await createOwnCompany(pendingCompany.row)
       const s = await resolveSession()
       setSession(s)
       if (!s) {
@@ -218,6 +198,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       status,
       session,
       email,
+      intent,
       companies,
       saving: pending > 0,
       error,
@@ -237,7 +218,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         await supabase?.auth.signOut()
       },
     }),
-    [status, session, email, companies, pending, error, updateCompany, createCompany, evaluate, reload, flushTime],
+    [status, session, email, intent, companies, pending, error, updateCompany, createCompany, evaluate, reload, flushTime],
   )
 
   return <PortalContext.Provider value={value}>{children}</PortalContext.Provider>
