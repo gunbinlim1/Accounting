@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react'
 import CompanyDocUpload from '../components/CompanyDocUpload'
 import { FeatureList, IndustryPicker } from '../components/IndustryPicker'
 import type { EinExtract, TwcExtract } from '../lib/companyDocs'
+import { docUrl, uploadDoc } from '../lib/db/api'
 import { ActivityList } from '../components/RunStatus'
 import { industries } from '../config/industries'
 import { industryLabel } from '../lib/labels'
@@ -52,20 +53,34 @@ export default function CompanySettings() {
   const valid = Object.values(errors).every((x) => !x) && !tipsError
 
   const docRecord = (kind: CompanyDoc['kind'], fileName: string, filled: string[]): CompanyDoc => ({ kind, fileName, uploadedAt: new Date().toISOString(), filled })
-  const applyEin = (x: EinExtract, fileName: string) => {
+  const [uploadError, setUploadError] = useState('')
+  const stored = async (file: File) => {
+    try {
+      setUploadError('')
+      return await uploadDoc(company.id, 'company', file)
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : String(e))
+      return undefined
+    }
+  }
+  const applyEin = async (x: EinExtract, file: File) => {
+    const fileName = file.name
+    const path = await stored(file)
     setD((p) => ({
       ...p,
       ein: x.ein ?? p.ein, legalName: x.legalName ?? p.legalName, dba: x.dba ?? p.dba,
       address: { street: x.street ?? p.address.street, city: x.city ?? p.address.city, state: x.state ?? p.address.state, zip: x.zip ?? p.address.zip },
-      documents: [...(p.documents ?? []).filter((doc) => doc.kind !== 'EIN'), docRecord('EIN', fileName, Object.keys(x))],
+      documents: [...(p.documents ?? []).filter((doc) => doc.kind !== 'EIN'), { ...docRecord('EIN', fileName, Object.keys(x)), path }],
     }))
     setSaved(false)
   }
-  const applyTwc = (x: TwcExtract, fileName: string) => {
+  const applyTwc = async (x: TwcExtract, file: File) => {
+    const fileName = file.name
+    const path = await stored(file)
     setD((p) => ({
       ...p,
       twcAccount: x.twcAccount ?? p.twcAccount,
-      documents: [...(p.documents ?? []).filter((doc) => doc.kind !== 'TWC'), docRecord('TWC', fileName, Object.keys(x))],
+      documents: [...(p.documents ?? []).filter((doc) => doc.kind !== 'TWC'), { ...docRecord('TWC', fileName, Object.keys(x)), path }],
     }))
     if (x.sutaRate) setRate(x.sutaRate)
     setSaved(false)
@@ -89,10 +104,18 @@ export default function CompanySettings() {
 
       <div className="form-layout">
         <section className="card form-card">
-          <CompanyDocUpload onEin={applyEin} onTwc={applyTwc} />
+          <CompanyDocUpload onEin={(x, f) => void applyEin(x, f)} onTwc={(x, f) => void applyTwc(x, f)} />
+          {uploadError && <p className="error-text">{t('파일을 저장하지 못했어요', 'Could not store the file')}: {uploadError}</p>}
           {(d.documents ?? []).length > 0 && (
             <p className="muted small">
-              {t('첨부된 서류', 'On file')}: {(d.documents ?? []).map((doc) => `${doc.kind === 'EIN' ? 'SS-4/EIN' : 'TWC'} · ${doc.fileName}`).join(' · ')}
+              {t('첨부된 서류', 'On file')}:{' '}
+              {(d.documents ?? []).map((doc) => (
+                <span key={doc.kind} className="doc-chip">
+                  {doc.kind === 'EIN' ? 'SS-4/EIN' : 'TWC'} · {doc.path
+                    ? <button type="button" className="link-btn" onClick={async () => window.open(await docUrl(doc.path!), '_blank', 'noopener')}>{doc.fileName}</button>
+                    : doc.fileName}
+                </span>
+              ))}
             </p>
           )}
           <h2>{t('사업자 정보', 'Business')}</h2>

@@ -1,9 +1,9 @@
 import {
-  Building2, CirclePlay, History, Inbox, Landmark, Languages, LayoutDashboard, LogOut, Moon, Plug, RotateCcw, Search, SlidersHorizontal, Sun, UserPlus, Users,
+  Building2, CirclePlay, History, Inbox, Landmark, Languages, LayoutDashboard, LogOut, Moon, Plug, Search, SlidersHorizontal, Sun, UserPlus, Users,
 } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { firmAccount } from '../data/demoPortal'
+import { firmName } from '../lib/supabase'
 import { statusTone } from '../lib/runStatus'
 import { currentPayDate, usePortal } from '../portal'
 import { usePrefs } from '../prefs'
@@ -24,7 +24,7 @@ function Shell({ nav, identity, extraNav, commands, mobileTitle }: {
   nav: NavItem[]; identity: ReactNode; extraNav?: ReactNode; commands: Command[]; mobileTitle: string
 }) {
   const { t, lang, toggleLang, theme, toggleTheme } = usePrefs()
-  const { logout, resetDemo } = usePortal()
+  const { logout, saving, error, dismissError } = usePortal()
   const [paletteOpen, setPaletteOpen] = useState(false)
 
   useEffect(() => {
@@ -42,12 +42,18 @@ function Shell({ nav, identity, extraNav, commands, mobileTitle }: {
     ...commands,
     { id: 'lang', label: lang === 'ko' ? 'Switch to English' : '한국어로 전환', icon: <Languages size={18} />, keywords: 'language 언어', run: toggleLang },
     { id: 'theme', label: t('테마 전환', 'Toggle theme'), icon: theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />, keywords: 'dark light 다크', run: toggleTheme },
-    { id: 'reset', label: t('데모 데이터 초기화', 'Reset demo data'), icon: <RotateCcw size={18} />, run: resetDemo },
-    { id: 'logout', label: t('로그아웃', 'Sign out'), icon: <LogOut size={18} />, run: logout },
+    { id: 'logout', label: t('로그아웃', 'Sign out'), icon: <LogOut size={18} />, run: () => void logout() },
   ]
 
   return (
     <div className="shell">
+      {(saving || error) && (
+        <div className={`save-status${error ? ' failed' : ''}`} role="status">
+          {error
+            ? <>{t('저장하지 못했어요 — 최신 데이터로 되돌렸습니다', 'Couldn’t save — reloaded the latest data')}: {error} <button className="link-btn" onClick={dismissError}>{t('닫기', 'Dismiss')}</button></>
+            : t('저장 중…', 'Saving…')}
+        </div>
+      )}
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">P</span>
@@ -202,13 +208,13 @@ export function FirmLayout() {
     <Shell
       nav={nav}
       commands={commands}
-      mobileTitle={firmAccount.firmName}
+      mobileTitle={firmName}
       identity={
         <div className="identity firm">
           <span className="identity-logo">CPA</span>
           <div>
-            <strong>{firmAccount.firmName}</strong>
-            <small>{session.name} · {t(firmAccount.title, firmAccount.titleEn)}</small>
+            <strong>{firmName}</strong>
+            <small>{session.name}{session.role === 'firm' && session.title ? ` · ${session.title}` : ''}</small>
           </div>
         </div>
       }

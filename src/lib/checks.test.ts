@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sampleEmployees } from '../data/sampleEmployees'
+import { sampleEmployees } from '../test/sampleEmployees'
 import { runChecks } from './checks'
 import { calculatePayroll } from './payroll'
 import type { TimeEntry } from '../types'

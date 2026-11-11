@@ -1,237 +1,243 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { companySchedule } from './config/payrollConfig'
-import { defaultTimeFor } from './config/industries'
-import { demoCompanies, demoTimeTweaks, recurringFringes } from './data/demoPortal'
-import { computeResults } from './lib/compute'
+import { createClientCompany, createOwnCompany, deleteCompany, loadCompanies, resolveSession, runWrite, uploadDoc } from './lib/db/api'
+import { companyToRow, withoutSecrets } from './lib/db/mappers'
+import { planWrites, type Write } from './lib/db/plan'
 import { nextPayDate, parseISODate, toISODate } from './lib/schedule'
-import { federalDepositFor, paymentsFor } from './lib/payments'
-import { federalDueDate, futaSchedule, quarterDueDate, twcQuarter, type Quarter } from './lib/taxes'
-import { splitName } from './lib/names'
-import { ytdFor } from './lib/ytd'
-import type { Company, CompanyData, Employee, PayRun, Session, TaxDeposit, TimeEntry } from './types'
-
-const STORAGE_KEY = 'payday-portal-v5'
-/**
- * 옛 저장 데이터: v2(이름 한 칸·업종 없음), v3(계좌 뒤 4자리만·서류 사본 없음), v4(업종별 데모 2곳 더 있음).
- * 데모 고객사는 새 시드로 바꾸고, 사용자가 직접 만든 고객사만 옮겨 옴.
- */
-const LEGACY_KEYS = ['payday-portal-v4', 'payday-portal-v3', 'payday-portal-v2']
-const SESSION_KEY = 'payday-portal-session-v1'
+import { supabase, supabaseConfigured } from './lib/supabase'
+import type { Company, CompanyData, CompanyDoc, Session } from './types'
 
 export const currentPayDate = (from = new Date()) =>
   toISODate(nextPayDate(companySchedule.frequency, parseISODate(companySchedule.anchorDate), from))
 
-/** 데모용 결정적 변동 (매번 같은 값) */
-const wobble = (i: number, k: number) => 1 + 0.09 * Math.sin(i * 1.7 + k * 0.9)
-
-function timeFor(e: Employee, i: number, tipsEnabled: boolean): TimeEntry {
-  const base = defaultTimeFor(e.role, tipsEnabled)
-  const f = wobble(i, e.id.charCodeAt(e.id.length - 1))
-  const fringes = (recurringFringes[e.id] ?? []).map((x, j) => ({ ...x, id: `${e.id}-f${j}` }))
-  if (e.payType === 'salary') return { ...base, fringes }
-  return {
-    regular: Math.min(80, Math.round(base.regular * f)),
-    overtime: base.overtime + (i % 4 === 0 ? 2 : 0),
-    cashTips: Math.round(base.cashTips * wobble(i + 3, 2)),
-    cardTips: Math.round(base.cardTips * wobble(i + 5, 3)),
-    fringes,
-  }
-}
-
-function initialCompanies(): CompanyData[] {
-  const today = new Date()
-  const todayIso = toISODate(today)
-  const payDate = currentPayDate(today)
-  const year = Number(payDate.slice(0, 4))
-  const anchor = parseISODate(companySchedule.anchorDate)
-
-  // 올해 기준일부터 이번 회차 직전까지 모든 급여일
-  const pastDates: string[] = []
-  for (let d = anchor; toISODate(d) < payDate; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 14)) pastDates.push(toISODate(d))
-
-  return demoCompanies(today).map((seed) => {
-    const { company, employees } = seed
-    const schedule = company.depositSchedule
-
-    // ── 지난 회차 기록 생성
-    const runs: PayRun[] = []
-    pastDates.forEach((pd, i) => {
-      const eligible = employees.filter((e) => e.hireDate <= pd && (e.active || pd < `${year}-06-01`)).map((e) => ({ ...e, active: true }))
-      const time = Object.fromEntries(eligible.map((e) => [e.id, timeFor(e, i, company.tipsEnabled)]))
-      const results = computeResults(eligible, time, ytdFor(runs, pd), company.sutaRate)
-      runs.push({ id: `run-${pd}`, payDate: pd, approvedAt: `${pd}T12:00:00.000Z`, time, results, payments: paymentsFor(employees, results) })
-    })
-
-    // ── 납부 기록: 연방은 회차별, FUTA·TWC는 지난 분기
-    const deposits: TaxDeposit[] = runs.map((r) => federalDepositFor(r, schedule, federalDueDate(r.payDate, schedule) < todayIso))
-    for (const q of [1, 2, 3, 4] as Quarter[]) {
-      const due = quarterDueDate(year, q)
-      if (due >= todayIso) continue
-      const tw = twcQuarter(runs, year, q, company.sutaRate)
-      if (tw.tax > 0) deposits.push({ id: `twc-${year} Q${q}`, kind: 'twc', period: `${year} Q${q}`, amount: tw.tax, dueDate: due, status: 'paid', paidAt: due })
-      const fu = futaSchedule(runs, year).find((x) => x.q === q)!
-      if (fu.mustDeposit && fu.accumulated > 0) deposits.push({ id: `futa-${year} Q${q}`, kind: 'futa', period: `${year} Q${q}`, amount: fu.accumulated, dueDate: due, status: 'paid', paidAt: due })
-    }
-
-    // ── 이번 회차 입력
-    const time: Record<string, TimeEntry> = Object.fromEntries(employees.map((e) => [e.id, timeFor(e, pastDates.length, company.tipsEnabled)]))
-    for (const [id, tweak] of Object.entries(demoTimeTweaks)) if (time[id]) time[id] = { ...time[id], ...tweak }
-
-    const ytd = ytdFor(runs, payDate)
-    const snapshot = seed.status === 'submitted'
-      ? { employees, time: { ...time }, results: computeResults(employees, time, ytd, company.sutaRate) }
-      : undefined
-    const submitEvent = seed.activity.find((a) => a.kind === 'submit')
-
-    return {
-      company,
-      employees,
-      time,
-      runs,
-      deposits,
-      current: {
-        payDate,
-        status: seed.status,
-        note: seed.note,
-        noteEn: seed.noteEn,
-        snapshot,
-        submittedAt: submitEvent?.at,
-        submittedBy: submitEvent?.actorName,
-      },
-      activity: seed.activity,
-    }
-  })
-}
-
-type LegacyEmployee = Omit<Employee, 'firstName' | 'lastName'> & { name?: string; firstName?: string; lastName?: string }
-
-/** 옛 데이터 → 현재 모양 (이름 분리, 업종 기본값) */
-function migrateCompany(c: CompanyData): CompanyData {
-  const fixEmp = (e: LegacyEmployee): Employee => {
-    if (typeof e.firstName === 'string' && typeof e.lastName === 'string') return e as Employee
-    const { name, ...rest } = e
-    return { ...rest, ...splitName(name ?? '') } as Employee
-  }
-  const company: Company = { ...c.company, industry: c.company.industry ?? 'restaurant', tipsEnabled: c.company.tipsEnabled ?? true }
-  const snap = c.current.snapshot
-  return {
-    ...c,
-    company,
-    employees: (c.employees as LegacyEmployee[]).map(fixEmp),
-    current: snap ? { ...c.current, snapshot: { ...snap, employees: (snap.employees as LegacyEmployee[]).map(fixEmp) } } : c.current,
-  }
-}
-
 /**
- * 일회성 정리: 사용자가 시험 삼아 만든 "test"·"123"·"123123" 고객사 삭제 (요청 2026-11-11).
- * 한 번 실행한 뒤에는 표시를 남겨, 같은 이름으로 새로 만든 회사는 지우지 않음.
+ * 로그인 상태
+ * - unconfigured: Supabase 설정(환경 변수)이 없음
+ * - signed_out: 로그인 전
+ * - mfa: 비밀번호는 확인됐고 2단계 인증(등록 또는 코드 입력)이 남음
+ * - recovery: 비밀번호 재설정 링크로 들어옴
+ * - no_role: 로그인했지만 연결된 회사·직원 기록이 없음
+ * - ready: 데이터를 불러옴
  */
-const CLEANUP_KEY = 'payday-cleanup-2026-11-11b'
-const cleanupTestClients = (list: CompanyData[]): CompanyData[] => {
-  if (load<boolean>(CLEANUP_KEY, () => false, (v) => v === true)) return list
-  save(CLEANUP_KEY, true)
-  const junk = (s: string) => ['test', '123', '123123'].includes(s.trim().toLowerCase())
-  return list.filter((c) => !(junk(c.company.dba) || junk(c.company.legalName)))
-}
+export type AuthStatus = 'loading' | 'unconfigured' | 'signed_out' | 'mfa' | 'recovery' | 'no_role' | 'ready' | 'error'
 
-function loadCompanies(): CompanyData[] {
-  return cleanupTestClients(loadStoredCompanies())
+/** 대표가 가입하면서 입력한 회사 정보 — 이메일 인증·2단계 인증을 마친 뒤 회사를 만들 때까지 잠시 보관 (민감 정보 없음) */
+const PENDING_KEY = 'payday-pending-company-v1'
+export interface PendingCompany {
+  email: string
+  row: Record<string, unknown>
 }
-
-function loadStoredCompanies(): CompanyData[] {
-  const valid = (v: unknown) => Array.isArray(v) && v.length > 0 && 'deposits' in (v as object[])[0]
-  const current = load<CompanyData[] | null>(STORAGE_KEY, () => null, valid)
-  if (current) return current.map(migrateCompany)
-  for (const key of LEGACY_KEYS) {
-    const legacy = load<CompanyData[] | null>(key, () => null, valid)
-    if (!legacy) continue
-    for (const k of LEGACY_KEYS) save(k, null)
-    const seed = initialCompanies()
-    const demoIds = new Set([...seed.map((c) => c.company.id), 'seoul-garden', 'el-sol', 'pho-bellaire', 'lone-star-fab'])
-    return [...seed, ...legacy.filter((c) => !demoIds.has(c.company.id)).map(migrateCompany)]
-  }
-  return initialCompanies()
-}
-
-/** 새로 만든 고객사 포털의 빈 데이터 (직원·급여 기록 없음) */
-export function newCompanyData(company: Company, actorName: string, actor: 'client' | 'firm'): CompanyData {
-  const at = new Date().toISOString()
-  return {
-    company,
-    employees: [],
-    time: {},
-    runs: [],
-    deposits: [],
-    current: { payDate: currentPayDate(), status: 'draft' },
-    activity: [{ id: `ev-${Date.now()}-setup`, at, actor, actorName, kind: 'settings', ko: '고객 포털 생성', en: 'Client portal created' }],
-  }
-}
-
-function load<T>(key: string, fallback: () => T, valid: (v: unknown) => boolean): T {
+export const savePendingCompany = (p: PendingCompany) => {
   try {
-    const raw = localStorage.getItem(key)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (valid(parsed)) return parsed as T
-    }
-  } catch {
-    /* ignore */
-  }
-  return fallback()
-}
-
-const save = (key: string, value: unknown) => {
-  try {
-    if (value === null) localStorage.removeItem(key)
-    else localStorage.setItem(key, JSON.stringify(value))
+    localStorage.setItem(PENDING_KEY, JSON.stringify(p))
   } catch {
     /* storage unavailable */
   }
 }
+const takePendingCompany = (email: string): PendingCompany | null => {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw) as PendingCompany
+    if (p.email.toLowerCase() !== email.toLowerCase()) return null
+    localStorage.removeItem(PENDING_KEY)
+    return p
+  } catch {
+    return null
+  }
+}
 
 interface Portal {
-  companies: CompanyData[]
+  status: AuthStatus
   session: Session | null
-  login: (session: Session) => void
-  logout: () => void
+  /** 로그인한 계정 이메일 (역할이 없어도) */
+  email: string
+  companies: CompanyData[]
+  /** 저장 중인 변경이 있음 */
+  saving: boolean
+  error: string | null
+  dismissError: () => void
+  /** 화면 상태를 바꾸고, 바뀐 부분을 DB에 저장 */
   updateCompany: (id: string, fn: (c: CompanyData) => CompanyData) => void
-  /** 새 고객사 포털 생성 */
-  addCompany: (c: CompanyData) => void
-  /** 고객사 삭제 (회계법인) — 그 고객사로 로그인한 세션도 끝냄 */
-  removeCompany: (id: string) => void
-  resetDemo: () => void
+  /** 회계법인: 새 고객사 (+ 첨부 서류 업로드) → 새 ID */
+  createCompany: (c: Company, files: Partial<Record<CompanyDoc['kind'], File>>) => Promise<string>
+  removeCompany: (id: string) => Promise<void>
+  /** 로그인·2단계 인증 직후 다시 판단 */
+  refreshAuth: () => Promise<void>
+  reload: () => Promise<void>
+  logout: () => Promise<void>
 }
 
 const PortalContext = createContext<Portal | null>(null)
 
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
 export function PortalProvider({ children }: { children: ReactNode }) {
-  const [companies, setCompanies] = useState<CompanyData[]>(loadCompanies)
-  const [session, setSession] = useState<Session | null>(() =>
-    load<Session | null>(SESSION_KEY, () => null, (v) => !!v && typeof v === 'object' && 'role' in (v as object)),
+  const [status, setStatus] = useState<AuthStatus>(supabaseConfigured ? 'loading' : 'unconfigured')
+  const [session, setSession] = useState<Session | null>(null)
+  const [email, setEmail] = useState('')
+  const [companies, setCompanies] = useState<CompanyData[]>([])
+  const [pending, setPending] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  /** 최신 화면 상태 (연속된 변경이 서로 덮어쓰지 않도록 즉시 갱신) */
+  const companiesRef = useRef<CompanyData[]>([])
+
+  const reload = useCallback(async () => {
+    const list = await loadCompanies(currentPayDate())
+    companiesRef.current = list
+    setCompanies(list)
+  }, [])
+
+  const evaluate = useCallback(async () => {
+    if (!supabase) return
+    try {
+      const { data } = await supabase.auth.getSession()
+      if (!data.session) {
+        setSession(null)
+        companiesRef.current = []
+        setCompanies([])
+        setStatus('signed_out')
+        return
+      }
+      setEmail(data.session.user.email ?? '')
+      const aal = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (aal.data?.currentLevel !== 'aal2') {
+        setStatus('mfa')
+        return
+      }
+      const pendingCompany = takePendingCompany(data.session.user.email ?? '')
+      if (pendingCompany) await createOwnCompany(pendingCompany.row)
+      const s = await resolveSession()
+      setSession(s)
+      if (!s) {
+        setStatus('no_role')
+        return
+      }
+      await reload()
+      setStatus('ready')
+    } catch (e) {
+      setError(errText(e))
+      setStatus('error')
+    }
+  }, [reload])
+
+  useEffect(() => {
+    if (!supabase) return
+    void evaluate()
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') setStatus('recovery')
+      else if (event === 'SIGNED_OUT') {
+        setSession(null)
+        setCompanies([])
+        setStatus('signed_out')
+      }
+    })
+    return () => data.subscription.unsubscribe()
+  }, [evaluate])
+
+  // ── 저장 대기열: 한 번에 하나씩 순서대로. 근무 입력만 바뀐 경우는 잠깐 모아서 저장
+  const chain = useRef<Promise<void>>(Promise.resolve())
+  const timeBuffer = useRef(new Map<string, Write>())
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const enqueue = useCallback(
+    (writes: Write[]) => {
+      if (!writes.length) return
+      setPending((n) => n + 1)
+      chain.current = chain.current
+        .then(async () => {
+          for (const w of writes) await runWrite(w)
+        })
+        .catch(async (e) => {
+          setError(errText(e))
+          // 실패하면 DB 기준으로 화면을 되돌림
+          await reload().catch(() => {})
+        })
+        .finally(() => setPending((n) => n - 1))
+    },
+    [reload],
   )
 
-  useEffect(() => save(STORAGE_KEY, companies), [companies])
-  useEffect(() => save(SESSION_KEY, session), [session])
+  const flushTime = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    const writes = [...timeBuffer.current.values()]
+    timeBuffer.current.clear()
+    enqueue(writes)
+  }, [enqueue])
 
-  const updateCompany = useCallback((id: string, fn: (c: CompanyData) => CompanyData) => {
-    setCompanies((list) => list.map((c) => (c.company.id === id ? fn(c) : c)))
-  }, [])
+  const save = useCallback(
+    (writes: Write[]) => {
+      if (!writes.length) return
+      if (writes.every((w) => w.kind === 'time')) {
+        for (const w of writes) if (w.kind === 'time') timeBuffer.current.set(`${w.row.company_id}|${w.row.pay_date}|${w.row.employee_id}`, w)
+        if (timer.current) clearTimeout(timer.current)
+        timer.current = setTimeout(flushTime, 600)
+        return
+      }
+      // 회차 상태 변경 등은 모아 둔 입력을 먼저 저장한 뒤 실행
+      if (timeBuffer.current.size) flushTime()
+      enqueue(writes)
+    },
+    [enqueue, flushTime],
+  )
+
+  const updateCompany = useCallback(
+    (id: string, fn: (c: CompanyData) => CompanyData) => {
+      const prev = companiesRef.current.find((c) => c.company.id === id)
+      if (!prev) return
+      const next = fn(prev)
+      const writes = planWrites(prev, next)
+      // 전체 SSN·계좌번호는 저장 요청에만 담고 화면 상태에서는 바로 지움
+      const clean: CompanyData = writes.some((w) => w.kind === 'secrets') ? { ...next, employees: next.employees.map(withoutSecrets) } : next
+      companiesRef.current = companiesRef.current.map((c) => (c.company.id === id ? clean : c))
+      setCompanies(companiesRef.current)
+      save(writes)
+    },
+    [save],
+  )
+
+  const createCompany = useCallback(
+    async (c: Company, files: Partial<Record<CompanyDoc['kind'], File>>) => {
+      const row = { ...companyToRow(c), documents: [] }
+      const id = await createClientCompany(row)
+      const docs: CompanyDoc[] = []
+      for (const d of c.documents ?? []) {
+        const file = files[d.kind]
+        docs.push(file ? { ...d, path: await uploadDoc(id, 'company', file) } : d)
+      }
+      if (docs.length) await runWrite({ kind: 'company', id, row: { ...row, documents: docs } })
+      await reload()
+      return id
+    },
+    [reload],
+  )
 
   const value = useMemo<Portal>(
     () => ({
-      companies,
+      status,
       session,
-      login: setSession,
-      logout: () => setSession(null),
+      email,
+      companies,
+      saving: pending > 0,
+      error,
+      dismissError: () => setError(null),
       updateCompany,
-      addCompany: (c: CompanyData) => setCompanies((list) => [...list.filter((x) => x.company.id !== c.company.id), c]),
-      removeCompany: (id: string) => {
-        setCompanies((list) => list.filter((x) => x.company.id !== id))
-        setSession((s) => (s && s.role !== 'firm' && s.companyId === id ? null : s))
+      createCompany,
+      removeCompany: async (id) => {
+        await deleteCompany(id)
+        companiesRef.current = companiesRef.current.filter((x) => x.company.id !== id)
+        setCompanies(companiesRef.current)
       },
-      resetDemo: () => setCompanies(initialCompanies()),
+      refreshAuth: evaluate,
+      reload,
+      logout: async () => {
+        if (timeBuffer.current.size) flushTime()
+        await chain.current
+        await supabase?.auth.signOut()
+      },
     }),
-    [companies, session, updateCompany],
+    [status, session, email, companies, pending, error, updateCompany, createCompany, evaluate, reload, flushTime],
   )
 
   return <PortalContext.Provider value={value}>{children}</PortalContext.Provider>

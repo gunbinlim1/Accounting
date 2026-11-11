@@ -7,8 +7,8 @@ type Kind = 'W-4' | 'I-9'
 interface Result { fileName: string; filled: number; scanned: boolean }
 
 interface Props {
-  onW4: (x: W4Extract, fileName: string) => void
-  onI9: (x: I9Extract, fileName: string) => void
+  onW4: (x: W4Extract, file: File) => void
+  onI9: (x: I9Extract, file: File) => void
 }
 
 /** W-4·I-9 파일을 올리면 양식 칸을 읽어 직원 정보에 자동 입력 */
@@ -25,11 +25,11 @@ export default function DocUpload({ onW4, onI9 }: Props) {
       const filledFields = fields.filter((f) => f.value || f.checked)
       if (kind === 'W-4') {
         const x = mapW4(fields)
-        onW4(x, file.name)
+        onW4(x, file)
         setResult((r) => ({ ...r, [kind]: { fileName: file.name, filled: Object.keys(x).length, scanned: filledFields.length === 0 } }))
       } else {
         const x = mapI9(fields)
-        onI9(x, file.name)
+        onI9(x, file)
         setResult((r) => ({ ...r, [kind]: { fileName: file.name, filled: Object.keys(x).length, scanned: filledFields.length === 0 } }))
       }
     } finally {

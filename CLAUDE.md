@@ -7,22 +7,16 @@
 - 목표: 고객이 포털에 로그인해 직원(W-4·I-9)과 급여(근무·팁·Fringe)를 입력·제출 → 회계법인이 검토·처리·지급·세금 납부·분기/연말 신고(941, TWC C-3, 940, W-2) → 고객은 내역·세금 안내 확인, 직원은 명세서·W-2 열람.
 - 기획서 문서(Claude Docs): https://claude.ai/artifact/1iHDZw1zgqF1zqD5sWPC7z — 개요, 전체 흐름 다이어그램, 신고 구조 결정, 기능 명세, Fringe 규칙표, 세금 일정, 보안, 로드맵, 결정 필요 사항. 열린 질문(PEO 용도 확인)이 댓글로 달려 있음.
 
-## 현재 상태 (1단계 데모 완료)
-- 배포: https://gunbinlim1.github.io/Accounting/ — `main`에 푸시하면 GitHub Actions(`.github/workflows/deploy.yml`)가 Pages로 자동 배포. CI(`ci.yml`)는 lint·test·build.
-- 저장소: https://github.com/gunbinlim1/Accounting (공개). 지금까지 `main`에 직접 커밋·푸시해 왔음(사용자 승인 흐름).
-- 데이터는 전부 **브라우저 localStorage**(가상 데이터). 저장 키: `payday-portal-v5`(회사 데이터), `payday-portal-session-v1`(세션). 데이터 모양을 바꾸면 키 버전을 올릴 것. 옛 키(v2·v3)가 있으면 데모 고객사는 새 시드로 바꾸고 사용자가 만든 고객사만 `migrateCompany`로 옮김.
-- 2단계(서버·MFA·암호화·비공개 호스팅·AI 문서 인식·이메일·ACH·전자신고)는 아직. 실제 고객 데이터는 보안 점검 전 받지 않음.
-
-## 데모 계정 (로그인 화면 하단 버튼, 인증 코드는 아무 6자리 / "데모 코드 자동 입력")
-| 계정 | 역할 | 상태 |
-|---|---|---|
-| Seoul Garden BBQ · Grace Kim (grace@seoulgarden.example) | 고객 (레스토랑, 팁 사용) | 작성 중 |
-| Maria Lopez (maria.lopez@mail.example) | 직원 포털 | `/me` |
-| Lone Star Microfab · Daniel Cho (daniel@lonestarfab.example) | 고객 (생산·제조업, 팁 없음) | 작성 중 |
-| Lotus Nail & Spa · Helen Vu (helen@lotusspa.example) | 고객 (서비스업, 팁 사용) | 제출됨 |
-| Gulfway Asian Market · Kevin Lee (kevin@gulfwaymarket.example) | 고객 (도소매업, 팁 없음) | 수정 요청, 계좌 인출 미서명 |
-| Demo CPA · Jordan Lee (payroll@democpa.example) | 회계법인 | `/firm` 대기열 |
-고객 데모는 업종별 1곳씩만 둠(사용자 요청). 사용자가 만든 고객사는 회계법인 검토 화면 상단 "고객사 삭제"로 지움. `portal.tsx`의 `cleanupTestClients`는 2026-11-11 요청으로 "test"·"123"·"123123" 고객사를 브라우저당 한 번만 지우는 일회성 정리. ⌘K 명령 팔레트 → "데모 데이터 초기화".
+## 현재 상태 (Supabase 전환 — 작업 브랜치)
+- 배포: https://gunbinlim1.github.io/Accounting/ — `main`에 푸시하면 GitHub Actions(`.github/workflows/deploy.yml`)가 Pages로 자동 배포. CI(`ci.yml`)는 lint·test·build + DB 시험(`scripts/test-db.sh`).
+- 저장소: https://github.com/gunbinlim1/Accounting (공개). 지금까지 `main`에 직접 커밋·푸시해 왔음(사용자 승인 흐름). Supabase 전환은 `claude/serene-noether-jl1r8o` 브랜치에 있고, **main 반영은 사용자 확인 후**(반영하면 Supabase 설정 전까지 배포 사이트가 "데이터베이스 연결 필요" 화면이 됨).
+- **데이터: Supabase 전용** (사용자 결정: 데모·브라우저 저장 제거, 정규화 테이블). 설정 순서는 `docs/SUPABASE.md`. 환경 변수 `VITE_SUPABASE_URL`·`VITE_SUPABASE_ANON_KEY`·`VITE_FIRM_NAME`(배포는 저장소 Variables `SUPABASE_URL`·`SUPABASE_ANON_KEY`·`FIRM_NAME`). 설정이 없으면 `SetupNeeded` 화면.
+- DB 구조: `supabase/migrations/20261111000000_payroll_schema.sql` — companies, company_members, firm_staff, employees, employee_secrets(암호화), time_entries, pay_runs, pay_results, payments, tax_deposits, activity, audit_log, 비공개 버킷 `payroll-docs`. RLS: 회계법인 전체 / 고객 자기 회사 / 직원 본인. 모든 접근은 MFA(aal2) 필수. 고객 상태 변경 규칙·제출 잠금은 트리거.
+- 앱 데이터 흐름: `src/portal.tsx`(인증 상태·불러오기·저장 대기열) → 화면은 기존처럼 `updateCompany(id, fn)`으로 CompanyData를 고치고, `src/lib/db/plan.ts`가 바뀐 부분을 DB 쓰기 목록으로 만들어 `src/lib/db/api.ts`가 순서대로 실행(근무 입력은 0.6초 모아서). 실패하면 DB 기준으로 다시 불러옴. 행↔객체 변환은 `src/lib/db/mappers.ts`.
+- 전체 SSN·계좌번호는 화면에서 입력 → `set_employee_secrets` RPC로 암호화 저장 → 화면 상태에서 즉시 제거. 화면엔 뒤 4자리와 `onFile` 표시.
+- 로그인: 이메일+비밀번호 → 인증 앱(TOTP) 등록/코드 → `claim_invites`(이메일로 대표·직원 자동 연결) → 역할 판단. 가입: `/signup`(대표, 회사 정보는 이메일 인증·MFA 후 생성될 때까지 localStorage `payday-pending-company-v1`에 잠시 보관), `/register`(초대받은 직원·대표). 회계법인 직원은 SQL로 `firm_staff` 등록.
+- 이 작업 환경에서는 supabase.co 접속이 막혀 있어 실제 프로젝트로는 시험하지 못함. 로컬 PostgreSQL + `supabase/tests/supabase_shim.sql`로 마이그레이션·권한 시험(47개), 앱 쪽은 단위 시험과 빈/가짜 설정 빌드로 화면 확인.
+- 2단계 남은 것: 실제 Supabase 프로젝트 연결·검증, 이메일 발송(SMTP), ACH·전자신고, 직원 초대 메일.
 
 ## 핵심 결정
 - **신고 방식: 회계법인 = Reporting Agent(Form 8655)**, 고객 EIN으로 941·940 신고, 텍사스 C-3는 TWC 대리인 권한, 세금은 고객 계좌 인출. 사용자가 등록한 PEO는 공동고용이 아닌 **납부·직접입금 대행 채널**로만 쓴다고 가정(사용자 확인 대기).
@@ -30,7 +24,7 @@
 - **직원 이름은 성·이름 분리**: `Employee.lastName`, `firstName`, `middleInitial?`. 표시 `fullName`, 정렬·서류 `sortName`/`compareByName`(성 기준), 한 칸 이름은 `splitName` (`src/lib/names.ts`). W-4·I-9 PDF 자동 입력도 분리해서 읽음. CSV 내보내기는 Last/First/MI 열.
 - **회사 서류 자동 입력**: Form SS-4(EIN 기재 사본)·CP 575·147C → EIN·법인명·상호·주소, TWC Liability Letter → TWC 계정번호·세율 (`src/lib/companyDocs.ts`, pdfjs-dist로 PDF 글자 읽기 + pdf-lib 양식 칸). 스캔본·사진은 2단계 AI 인식. 회사 만들기·회사 정보 화면에 업로드, `Company.documents`에 기록.
 - **IRS 예치 주기 기본값: 반주별(semiweekly)**. 고객이 포털을 만들면 홈(`/`)으로 이동.
-- **직접입금은 라우팅 9자리(ABA 체크섬)·계좌번호 전체 + 확인 입력 필수** (`src/lib/bank.ts`). `BankAccount.routingNumber/accountNumber`에 전체 저장(데모 localStorage — 2단계에서 암호화), 화면은 뒤 4자리. 전체 번호 없는 직접입금 직원은 점검 경고.
+- **직접입금은 라우팅 9자리(ABA 체크섬)·계좌번호 전체 + 확인 입력 필수** (`src/lib/bank.ts`). 전체 번호는 `set_employee_secrets`로 암호화 저장(화면 상태엔 남기지 않음), 화면은 뒤 4자리·`onFile`. 전체 번호가 없는 직접입금 직원은 점검 경고.
 - **I-9 서류 사본 업로드 필수**: 기본 운전면허증(List B) + 사회보장카드(List C), 사본 없으면 I-9 단계 진행 불가(`I9Document.copy`, 파일 자체는 2단계 서버 보관). 직원이 다른 서류를 내면 List A 등으로 바꿔 그 사본을 올림 — 고용주가 특정 서류를 강요하면 I-9 차별(document abuse) 소지가 있어 화면 안내 유지.
 - 기본 주: **텍사스**(주 소득세 없음). FICA, FUTA 0.6%/$7,000, TWC 기본 2.7%/$9,000(고객사별 세율 입력).
 - 연방 원천징수: 2026 Pub 15-T 연간 퍼센트 방식(표준공제 16,100/32,200/24,150, Rev. Proc. 2025-32 구간). 제3자 계산기 예시($75k Single 연 $7,670, MFJ $4,640)와 일치 검증. irs.gov는 이 세션 네트워크에서 차단됐었음.
@@ -39,13 +33,13 @@
 - 서류 문제(I-9 기한 초과·W-4 없음)는 **급여 승인을 막지 않음**(임금은 지급해야 함). critical = 계산 자체가 틀린 경우만(최저 시급 미달, 연봉 $0).
 - 회차별 시급/회당 급여 변경 가능(`TimeEntry.rate`), "기본값으로 저장"으로 직원 정보 반영. 연봉은 회당×26.
 - 제출 시 스냅샷 고정 → 회계법인은 고정본 검토. 제출 마감: 지급일 2영업일 전 오후 3시. 급여 주기: 격주 금요일(기준일 2026-01-09).
-- SSN·계좌·서류 번호는 뒤 4자리만 저장(데모). 전자 W-2는 직원 동의(eConsent) 필요.
+- SSN·계좌 전체 번호는 암호화 저장(회계법인만 열람), I-9 서류 번호는 뒤 4자리만. 새 직원은 SSN 9자리 필수(W-2용). 전자 W-2는 직원 동의(eConsent) 필요.
 - 디자인: Gusto는 흐름만 참고(이름·로고·브랜드색 사용 금지). 직원 목록은 카드 대신 리스트. 급여 실행은 표 입력(Enter/↑↓ 이동) + 검토·제출 2단계, 시급·연봉 크게 표시.
 
 ## 구조
 - 스택: React 19 + TypeScript + Vite + react-router 7, lucide-react, vitest, oxlint. `read-excel-file`(엑셀 가져오기), `pdf-lib`(W-4·I-9 작성 가능 PDF 칸 읽기 + 데모 샘플 PDF 생성).
 - 다국어: **모든 화면 한국어·영어 제공**(사용자 요청). `usePrefs().t(ko, en)` 인라인, 모든 화면에 언어 전환 버튼. 첫 방문 언어는 브라우저 언어(한국어면 ko, 그 외 en), 선택은 `pref-lang`에 저장. 새 문구는 반드시 `t()`로 두 언어를 함께 쓰고, 데이터 문구는 ko/en 쌍(활동 기록, 점검, 수정 요청 `noteEn`)으로 저장. 확인: 영어 모드로 전 화면을 돌며 한글이 섞였는지 Playwright로 검사. 다크 모드: CSS 토큰(`src/index.css`).
-- `src/config/industries.ts`: 업종 프로필·직무 템플릿. `src/portal.tsx`: 세션·고객사 목록·데모 시드(올해 전체 급여 기록·납부 기록 생성). `src/store.tsx`: `CompanyProvider`/`useStore()` 고객사 단위 데이터와 동작(제출/취소/검토/수정요청/처리/납부/위임 서명).
+- `src/config/industries.ts`: 업종 프로필·직무 템플릿. `src/portal.tsx`: Supabase 인증 상태·고객사 데이터 불러오기·저장 대기열. `src/lib/db/`: 행 변환·쓰기 계획·API. `src/store.tsx`: `CompanyProvider`/`useStore()` 고객사 단위 데이터와 동작(제출/취소/검토/수정요청/처리/납부/위임 서명).
 - `src/lib`: `payroll.ts`(계산 엔진·Fringe 분리), `federalWithholding.ts`, `taxes.ts`(예치 기한, 941, C-3, FUTA $500, W-2), `payments.ts`, `checks.ts`(자동 점검), `compliance.ts`(I-9), `docExtract.ts`(PDF 자동 입력), `ytd.ts`, `compute.ts`.
 - 페이지: 공개 `/signup`(회사 포털 만들기) · 고객 `/`(홈) `/run` `/employees` `/employees/new|:id` `/history` `/taxes` `/company` `/simulator` · 회계법인 `/firm` `/firm/settings` `/firm/new`(고객사 추가) `/firm/c/:id`(검토) `/taxes` `/history` · 직원 `/me` · `/login`.
 

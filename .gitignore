@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 로컬 환경 변수 (Supabase 키)
+.env
+.env.local
+.env.*.local

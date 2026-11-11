@@ -85,7 +85,13 @@ select test.denied($$update public.pay_runs set approved_at = now()$$, 'client c
 update public.pay_runs set status = 'draft', snapshot = null;
 select test.ok((select status = 'draft' from public.pay_runs), 'client can recall a submitted run');
 update public.time_entries set regular = 72;
-update public.pay_runs set status = 'submitted';
+-- 앱은 upsert(INSERT … ON CONFLICT DO UPDATE)로 저장: 삽입·수정 트리거가 모두 통과해야 함
+insert into public.time_entries (company_id, pay_date, employee_id, regular) values ((select ca from ids), '2026-11-13', '00000000-0000-0000-0000-0000000000e1', 73)
+  on conflict (company_id, pay_date, employee_id) do update set regular = excluded.regular;
+insert into public.pay_runs (company_id, pay_date, status, submitted_by, note) values ((select ca from ids), '2026-11-13', 'submitted', 'Owner A', null)
+  on conflict (company_id, pay_date) do update set status = excluded.status, submitted_by = excluded.submitted_by, note = excluded.note;
+select test.ok((select status = 'submitted' from public.pay_runs), 'client submits through upsert');
+select test.denied($$insert into public.pay_runs (company_id, pay_date, status) values ((select ca from ids), '2026-11-13', 'processed') on conflict (company_id, pay_date) do update set status = excluded.status$$, 'client cannot upsert a processed run');
 
 -- 활동 기록
 select test.denied($$insert into public.activity (id, company_id, actor, actor_name, kind, ko, en) values ('x1', (select ca from ids), 'firm', 'A', 'submit', 'k', 'e')$$, 'client cannot log as firm');
@@ -123,6 +129,17 @@ reset role;
 select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
 set role authenticated;
 select test.ok((select count(*) = 2 from public.companies), 'firm sees every client');
+update public.pay_runs set status = 'changes_requested', note = 'OT 확인', note_en = 'Check OT';
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
+set role authenticated;
+select test.denied($$update public.pay_runs set note = 'hide it'$$, 'client cannot rewrite the firm''s note');
+insert into public.pay_runs (company_id, pay_date, status, note, note_en) values ((select ca from ids limit 1), '2026-11-13', 'submitted', null, null)
+  on conflict (company_id, pay_date) do update set status = excluded.status, note = excluded.note, note_en = excluded.note_en;
+select test.ok((select status = 'submitted' and note is null from public.pay_runs), 'client resubmits after changes requested');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
+set role authenticated;
 update public.pay_runs set status = 'in_review';
 update public.pay_runs set status = 'processed', approved_at = now();
 insert into public.pay_results (company_id, pay_date, employee_id, entry, result, gross_pay, net_pay, federal_withholding, social_security, medicare, employer_taxes)

@@ -7,8 +7,8 @@ type Kind = 'EIN' | 'TWC'
 interface Result { fileName: string; filled: string[]; scanned: boolean }
 
 interface Props {
-  onEin: (x: EinExtract, fileName: string) => void
-  onTwc: (x: TwcExtract, fileName: string) => void
+  onEin: (x: EinExtract, file: File) => void
+  onTwc: (x: TwcExtract, file: File) => void
 }
 
 /** Form SS-4(EIN 확인서)·TWC 통지서를 올리면 EIN·TWC 계정번호 등을 자동 입력 */
@@ -30,8 +30,8 @@ export default function CompanyDocUpload({ onEin, onTwc }: Props) {
       const text = isPdf ? await readPdfText(file) : ''
       const x = kind === 'EIN' ? parseEinText(text) : parseTwcText(text)
       const filled = Object.keys(x)
-      if (kind === 'EIN') onEin(x, file.name)
-      else onTwc(x, file.name)
+      if (kind === 'EIN') onEin(x, file)
+      else onTwc(x, file)
       setResult((r) => ({ ...r, [kind]: { fileName: file.name, filled: filled.map(label), scanned: !text.trim() } }))
     } finally {
       setBusy(null)

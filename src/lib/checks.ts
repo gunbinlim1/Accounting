@@ -119,7 +119,7 @@ export function runChecks({ employees, time, results, previous, ytdGross, standa
     }
 
     // ── 직접입금 계좌
-    if (e.payMethod === 'direct_deposit' && !(e.bank?.routingNumber && e.bank.accountNumber)) {
+    if (e.payMethod === 'direct_deposit' && !e.bank?.onFile && !(e.bank?.routingNumber && e.bank.accountNumber)) {
       add({ id: `${e.id}-bank`, severity: 'warning', employeeId: e.id,
         ko: `${n}님은 직접입금인데 라우팅·계좌번호 전체가 없습니다. 직원 정보에서 전체 번호를 입력하지 않으면 이번 회차는 수표로 지급해야 해요.`,
         en: `${n} is on direct deposit but the full routing/account numbers are missing. Enter them, or this run must be paid by check.` })

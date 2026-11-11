@@ -1,3 +1,4 @@
+// 테스트 전용 가상 직원 데이터 (앱에는 포함되지 않음)
 import { defaultW4 } from '../lib/federalWithholding'
 import { toISODate } from '../lib/schedule'
 import type { Employee, I9 } from '../types'

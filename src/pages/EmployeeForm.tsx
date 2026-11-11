@@ -8,6 +8,7 @@ import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config
 import { defaultTimeFor, industries, roleTemplate, rolesFor } from '../config/industries'
 import { digits, isValidAccount, isValidRouting, maskAccount } from '../lib/bank'
 import { addBusinessDays, keepLast4, maskSsn } from '../lib/compliance'
+import { uploadDoc } from '../lib/db/api'
 import { defaultW4 } from '../lib/federalWithholding'
 import { formatCurrency, formatCurrencyWhole, formatDate } from '../lib/format'
 import { citizenshipLabel, filingLabel, industryLabel, jobLabel, payLabel, roleLabel } from '../lib/labels'
@@ -74,8 +75,10 @@ interface Draft {
   /** 계좌번호 확인 입력 */
   accountConfirm: string
   bankType: 'checking' | 'savings'
-  /** 전체 번호 없이 뒤 4자리만 저장된 옛 계좌 "routing|account" */
-  bankLegacy: string
+  /** 서버에 암호화 저장된 계좌의 뒤 4자리 "routing|account" (없으면 '') */
+  bankOnFile: string
+  /** 서버에 SSN 전체가 암호화 저장되어 있음 */
+  ssnOnFile: boolean
   eConsent: boolean
   documents: UploadedDoc[]
   /** 서류에서 자동 입력된 항목 이름 */
@@ -111,7 +114,7 @@ function newDraft(company: Company): Draft {
     otherIncome: '0', deductions: '0', extraWithholding: '0', exempt: false, w4Signed: today(),
     citizenship: 'citizen', uscis: '', workAuthExpires: '', section1Date: today(),
     documentPath: 'BC', docs: defaultDocs(), section2Date: '',
-    payMethod: 'direct_deposit', routing: '', account: '', accountConfirm: '', bankType: 'checking', bankLegacy: '', eConsent: true, documents: [], autoFilled: [],
+    payMethod: 'direct_deposit', routing: '', account: '', accountConfirm: '', bankType: 'checking', bankOnFile: '', ssnOnFile: false, eConsent: true, documents: [], autoFilled: [],
   }
 }
 
@@ -129,8 +132,8 @@ function fromEmployee(e: Employee): Draft {
     extraWithholding: String(w4.extraWithholding), exempt: w4.exempt, w4Signed: w4.signedDate || today(),
     citizenship: e.i9.citizenship, uscis: e.i9.uscisLast4 ?? '', workAuthExpires: e.i9.workAuthExpires ?? '',
     section1Date: e.i9.section1Date ?? '', documentPath: e.i9.documentPath, docs, section2Date: e.i9.section2Date ?? '',
-    payMethod: e.payMethod ?? 'client_check', routing: e.bank?.routingNumber ?? '', account: e.bank?.accountNumber ?? '', accountConfirm: e.bank?.accountNumber ?? '',
-    bankType: e.bank?.type ?? 'checking', bankLegacy: e.bank && !e.bank.accountNumber ? `${e.bank.routingLast4}|${e.bank.accountLast4}` : '', eConsent: !!e.eConsent, documents: e.documents ?? [], autoFilled: [],
+    payMethod: e.payMethod ?? 'client_check', routing: '', account: '', accountConfirm: '',
+    bankType: e.bank?.type ?? 'checking', bankOnFile: e.bank?.onFile ? `${e.bank.routingLast4}|${e.bank.accountLast4}` : '', ssnOnFile: !!e.ssnOnFile, eConsent: !!e.eConsent, documents: e.documents ?? [], autoFilled: [],
   }
 }
 
@@ -154,6 +157,8 @@ function toEmployee(d: Draft, id: string): Employee {
     active: d.active,
     hireDate: d.hireDate,
     ssnLast4: d.ssn ? keepLast4(d.ssn) : d.ssnLast4Existing,
+    ssnFull: digits(d.ssn).length === 9 ? digits(d.ssn) : undefined,
+    ssnOnFile: d.ssnOnFile,
     dateOfBirth: d.dob || undefined,
     phone: d.phone.trim() || undefined,
     email: d.email.trim() || undefined,
@@ -177,13 +182,16 @@ function toEmployee(d: Draft, id: string): Employee {
     payMethod: d.payMethod,
     bank:
       d.payMethod === 'direct_deposit'
-        ? {
-            routingNumber: digits(d.routing),
-            accountNumber: digits(d.account),
-            routingLast4: keepLast4(d.routing),
-            accountLast4: keepLast4(d.account),
-            type: d.bankType,
-          }
+        ? d.routing || d.account || !d.bankOnFile
+          ? {
+              routingNumber: digits(d.routing) || undefined,
+              accountNumber: digits(d.account) || undefined,
+              routingLast4: keepLast4(d.routing),
+              accountLast4: keepLast4(d.account),
+              type: d.bankType,
+              onFile: false,
+            }
+          : { routingLast4: d.bankOnFile.split('|')[0], accountLast4: d.bankOnFile.split('|')[1], type: d.bankType, onFile: true }
         : undefined,
     eConsent: d.eConsent,
     documents: d.documents,
@@ -264,10 +272,10 @@ export default function EmployeeForm() {
     }
     if (step === 1) {
       const ssnDigits = d.ssn.replace(/\D/g, '')
-      if (!d.ssnLast4Existing && ssnDigits.length !== 9 && ssnDigits.length !== 4) e.ssn = t('SSN 9자리 또는 뒤 4자리를 입력하세요', 'Enter the 9-digit SSN or its last 4')
-      if (d.ssn && ssnDigits.length !== 9 && ssnDigits.length !== 4) e.ssn = t('숫자 9자리 또는 4자리', '9 or 4 digits')
+      if (!d.ssnOnFile && ssnDigits.length !== 9) e.ssn = t('W-2 작성을 위해 SSN 9자리 전체를 입력하세요', 'Enter the full 9-digit SSN (needed for the W-2)')
+      if (d.ssn && ssnDigits.length !== 9) e.ssn = t('숫자 9자리', '9 digits')
       if (d.zip && !/^\d{5}(-\d{4})?$/.test(d.zip.trim())) e.zip = t('ZIP 5자리', '5-digit ZIP')
-      if (d.payMethod === 'direct_deposit') {
+      if (d.payMethod === 'direct_deposit' && (!d.bankOnFile || d.routing || d.account)) {
         if (!isValidRouting(d.routing))
           e.routing = digits(d.routing).length === 9 ? t('유효하지 않은 라우팅 번호예요 (체크섬 불일치)', 'Not a valid routing number (checksum)') : t('라우팅 번호 9자리 전체를 입력하세요', 'Enter the full 9-digit routing number')
         if (!isValidAccount(d.account)) e.account = t('계좌번호 전체(숫자 4~17자리)를 입력하세요', 'Enter the full account number (4–17 digits)')
@@ -304,27 +312,41 @@ export default function EmployeeForm() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const newId = useMemo(() => {
-    let n = employees.length + 1
-    while (employees.some((e) => e.id === `EMP-${String(n).padStart(3, '0')}`)) n++
-    return `EMP-${String(n).padStart(3, '0')}`
-  }, [employees])
+  const [newId] = useState(() => crypto.randomUUID())
+  const empId = d.id ?? newId
+  const [uploading, setUploading] = useState<string | null>(null)
+  const [uploadError, setUploadError] = useState('')
+  /** 파일을 비공개 저장소에 올리고 경로를 돌려줌 */
+  const store = async (key: string, file: File): Promise<string | undefined> => {
+    setUploading(key)
+    setUploadError('')
+    try {
+      return await uploadDoc(company.id, `employees/${empId}`, file)
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : String(e))
+      return undefined
+    } finally {
+      setUploading(null)
+    }
+  }
 
   const preview = useMemo(() => {
-    const emp = toEmployee(d, d.id ?? newId)
+    const emp = toEmployee(d, empId)
     if (!(emp.rate > 0)) return null
     return calculatePayroll({ employee: emp, payFrequency: companySchedule.frequency, time: defaultTimeFor(d.role, company.tipsEnabled), sutaRate: company.sutaRate })
-  }, [d, newId, company.tipsEnabled, company.sutaRate])
+  }, [d, empId, company.tipsEnabled, company.sutaRate])
 
   const save = () => {
-    upsertEmployee(toEmployee(d, d.id ?? newId), session?.name ?? company.ownerName)
+    upsertEmployee(toEmployee(d, empId), session?.name ?? company.ownerName)
     navigate('/employees')
   }
 
-  const addDoc = (kind: 'W-4' | 'I-9', fileName: string, filled: number) =>
-    ({ kind, fileName, uploadedAt: new Date().toISOString(), autoFilled: filled }) as UploadedDoc
+  const addDoc = (kind: 'W-4' | 'I-9', fileName: string, filled: number, path?: string) =>
+    ({ kind, fileName, uploadedAt: new Date().toISOString(), autoFilled: filled, path }) as UploadedDoc
 
-  const applyW4 = (x: W4Extract, fileName: string) => {
+  const applyW4 = async (x: W4Extract, file: File) => {
+    const fileName = file.name
+    const path = await store('W-4', file)
     const labels = [
       (x.firstName || x.lastName) && t('이름', 'Name'), x.ssn && 'SSN', (x.street || x.city) && t('주소', 'Address'), x.filingStatus && t('신고 상태', 'Filing status'),
       x.multipleJobs !== undefined && 'Step 2', x.dependents && t('부양가족', 'Dependents'), (x.otherIncome || x.deductions || x.extraWithholding) && 'Step 4',
@@ -335,12 +357,14 @@ export default function EmployeeForm() {
       w4Received: true, filingStatus: x.filingStatus ?? p.filingStatus, multipleJobs: x.multipleJobs ?? p.multipleJobs,
       dependents: x.dependents ?? p.dependents, otherIncome: x.otherIncome ?? p.otherIncome, deductions: x.deductions ?? p.deductions,
       extraWithholding: x.extraWithholding ?? p.extraWithholding, exempt: x.exempt ?? p.exempt,
-      documents: [...p.documents.filter((doc) => doc.kind !== 'W-4'), addDoc('W-4', fileName, labels.length)],
+      documents: [...p.documents.filter((doc) => doc.kind !== 'W-4'), addDoc('W-4', fileName, labels.length, path)],
       autoFilled: [...new Set([...p.autoFilled, ...labels.map((l) => `W-4 ${l}`)])],
     }))
   }
 
-  const applyI9 = (x: I9Extract, fileName: string) => {
+  const applyI9 = async (x: I9Extract, file: File) => {
+    const fileName = file.name
+    const path = await store('I-9', file)
     const labels = [
       (x.firstName || x.lastName) && t('이름', 'Name'), x.ssn && 'SSN', x.dob && t('생년월일', 'DOB'), (x.street || x.city) && t('주소', 'Address'),
       x.email && t('이메일', 'Email'), x.phone && t('전화', 'Phone'), x.citizenship && t('시민권 상태', 'Status'), x.uscis && 'A-Number', x.workAuthExpires && t('허가 만료일', 'Auth expiry'),
@@ -351,7 +375,7 @@ export default function EmployeeForm() {
       street: p.street || x.street || '', city: x.city ?? p.city, state: x.state ?? p.state, zip: x.zip ?? p.zip,
       citizenship: x.citizenship ?? p.citizenship, uscis: x.uscis ?? p.uscis, workAuthExpires: x.workAuthExpires ?? p.workAuthExpires,
       section1Date: p.section1Date || p.hireDate,
-      documents: [...p.documents.filter((doc) => doc.kind !== 'I-9'), addDoc('I-9', fileName, labels.length)],
+      documents: [...p.documents.filter((doc) => doc.kind !== 'I-9'), addDoc('I-9', fileName, labels.length, path)],
       autoFilled: [...new Set([...p.autoFilled, ...labels.map((l) => `I-9 ${l}`)])],
     }))
   }
@@ -399,7 +423,8 @@ export default function EmployeeForm() {
         <section className="card form-card">
           {step === 0 && (
             <>
-              {!d.id && <DocUpload onW4={applyW4} onI9={applyI9} />}
+              {!d.id && <DocUpload onW4={(x, f) => void applyW4(x, f)} onI9={(x, f) => void applyI9(x, f)} />}
+              {uploadError && <p className="error-text">{t('파일을 저장하지 못했어요', 'Could not store the file')}: {uploadError}</p>}
               {d.autoFilled.length > 0 && (
                 <div className="auto-banner">
                   <strong>{t('서류에서 자동 입력됨', 'Filled from documents')}</strong>
@@ -488,13 +513,13 @@ export default function EmployeeForm() {
               <h2>{t('개인 정보', 'Personal information')}</h2>
               <div className="privacy-note">
                 <Lock size={16} aria-hidden />
-                {t('보안을 위해 SSN과 서류 번호는 뒤 4자리만 저장합니다. 데모 사이트이니 실제 번호를 입력하지 마세요.', 'For security only the last 4 digits of SSNs and document numbers are stored. This is a demo — do not enter real numbers.')}
+                {t('SSN과 계좌 전체 번호는 서버에 암호화해 저장하고, 화면에는 뒤 4자리만 보여 줍니다. 회계법인만 W-2·직접입금 처리를 위해 전체 번호를 열 수 있고, 열람 기록이 남습니다.', 'Full SSNs and bank numbers are encrypted on the server and only the last 4 digits are shown. Only your CPA firm can open the full numbers (for W-2s and direct deposit), and every view is logged.')}
               </div>
               <div className="form-grid">
                 <Field
                   label={t('사회보장번호 (SSN)', 'Social Security number')}
                   error={err('ssn')}
-                  hint={d.ssnLast4Existing ? t(`저장됨: ${maskSsn(d.ssnLast4Existing)} — 바꿀 때만 입력`, `On file: ${maskSsn(d.ssnLast4Existing)} — enter only to change`) : undefined}
+                  hint={d.ssnOnFile ? t(`저장됨 (암호화): ${maskSsn(d.ssnLast4Existing)} — 바꿀 때만 입력`, `On file (encrypted): ${maskSsn(d.ssnLast4Existing)} — enter only to change`) : t('9자리 전체 — 서버에 암호화 저장, 화면에는 뒤 4자리만', 'All 9 digits — encrypted on the server, only the last 4 shown')}
                 >
                   <input inputMode="numeric" autoComplete="off" value={d.ssn} onChange={(e) => set('ssn', e.target.value)} placeholder="123-45-6789" />
                 </Field>
@@ -540,7 +565,7 @@ export default function EmployeeForm() {
                 <>
                   <p className="muted small">
                     {t('직접입금(ACH)은 라우팅 번호 9자리와 계좌번호 전체가 있어야 처리돼요. 직원의 void 수표나 은행 직접입금 양식을 보고 입력하세요.', 'Direct deposit (ACH) needs the full 9-digit routing number and the full account number. Copy them from a voided check or the bank’s direct deposit form.')}
-                    {d.bankLegacy && <strong className="block warn-text">{t(`기존 기록은 뒤 4자리(****${d.bankLegacy.split('|')[1]})만 있어요 — 전체 번호를 다시 입력해 주세요.`, `Only the last 4 (****${d.bankLegacy.split('|')[1]}) are on file — re-enter the full numbers.`)}</strong>}
+                    {d.bankOnFile && <strong className="block">{t(`저장됨 (암호화): 라우팅 ****${d.bankOnFile.split('|')[0]} · 계좌 ****${d.bankOnFile.split('|')[1]} — 계좌를 바꿀 때만 전체 번호를 다시 입력하세요.`, `On file (encrypted): routing ****${d.bankOnFile.split('|')[0]} · account ****${d.bankOnFile.split('|')[1]} — re-enter full numbers only to change it.`)}</strong>}
                   </p>
                   <div className="form-grid">
                     <Field label={t('라우팅 번호 (9자리 전체)', 'Routing number (all 9 digits)')} error={err('routing')}>
@@ -719,10 +744,15 @@ export default function EmployeeForm() {
                     <label className={`copy-upload${d.docs[i].copy ? ' done' : showErrors ? ' missing' : ''}`}>
                       {d.docs[i].copy ? <CheckCircle2 size={18} aria-hidden /> : <FileUp size={18} aria-hidden />}
                       <span>
-                        <strong>{d.docs[i].copy ? d.docs[i].copy!.fileName : t(`${d.docs[i].title || '서류'} 사본 업로드 (필수)`, `Upload a copy of the ${d.docs[i].title || 'document'} (required)`)}</strong>
+                        <strong>{uploading === `copy-${i}` ? t('올리는 중…', 'Uploading…') : d.docs[i].copy ? d.docs[i].copy!.fileName : t(`${d.docs[i].title || '서류'} 사본 업로드 (필수)`, `Upload a copy of the ${d.docs[i].title || 'document'} (required)`)}</strong>
                         <small className="muted block">{d.docs[i].copy ? t('다른 파일로 바꾸려면 누르세요', 'Click to replace') : t('앞·뒷면 사진 또는 스캔 PDF', 'Photo or scan of front and back')}</small>
                       </span>
-                      <input type="file" accept=".pdf,image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDoc(i, { copy: { fileName: f.name, uploadedAt: new Date().toISOString() } }) }} />
+                      <input type="file" accept=".pdf,image/*" disabled={uploading !== null} onChange={async (e) => {
+                        const f = e.target.files?.[0]
+                        if (!f) return
+                        const path = await store(`copy-${i}`, f)
+                        if (path) setDoc(i, { copy: { fileName: f.name, uploadedAt: new Date().toISOString(), path } })
+                      }} />
                     </label>
                   </div>
                 )
@@ -760,7 +790,9 @@ export default function EmployeeForm() {
                   <dt>{t('지급', 'Pay by')}</dt>
                   <dd>
                     {{ direct_deposit: t('직접입금', 'Direct deposit'), firm_check: t('회계법인 인쇄 수표', 'CPA-printed check'), client_check: t('대표님 수표', 'Your own check') }[d.payMethod]}
-                    {d.payMethod === 'direct_deposit' && ` · ${t('라우팅', 'Routing')} ${digits(d.routing)} · ${t('계좌', 'Acct')} ${maskAccount(digits(d.account))} (${d.bankType})`}
+                    {d.payMethod === 'direct_deposit' && (d.routing
+                      ? ` · ${t('라우팅', 'Routing')} ${digits(d.routing)} · ${t('계좌', 'Acct')} ${maskAccount(digits(d.account))} (${d.bankType})`
+                      : ` · ${t('저장된 계좌', 'Account on file')} ****${d.bankOnFile.split('|')[1] ?? ''} (${d.bankType})`)}
                     {' · '}{d.eConsent ? t('전자 수령 동의', 'E-delivery consent') : t('종이 수령', 'Paper')}
                   </dd>
                 </div>

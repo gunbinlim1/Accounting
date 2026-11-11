@@ -155,8 +155,7 @@ export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes
           onClick={() => {
             const name = data.company.dba
             if (!window.confirm(t(`${name} 고객사와 모든 급여 기록을 삭제할까요? 되돌릴 수 없습니다.`, `Delete ${name} and all of its payroll records? This can’t be undone.`))) return
-            removeCompany(data.company.id)
-            navigate('/firm')
+            void removeCompany(data.company.id).then(() => navigate('/firm'))
           }}
         >
           <Trash2 size={15} aria-hidden /> {t('고객사 삭제', 'Delete client')}

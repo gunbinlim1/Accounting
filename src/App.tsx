@@ -11,6 +11,7 @@ import FirmReview from './pages/FirmReview'
 import FirmSettings from './pages/FirmSettings'
 import History from './pages/History'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import NotFound from './pages/NotFound'
 import PayrollRun from './pages/PayrollRun'
 import Simulator from './pages/Simulator'
@@ -26,6 +27,7 @@ export default function App() {
           <Routes>
             <Route path="login" element={<Login />} />
             <Route path="signup" element={<CompanySetup mode="client" />} />
+            <Route path="register" element={<Register />} />
             <Route path="me" element={<EmployeePortal />} />
             <Route element={<ClientLayout />}>
               <Route index element={<Dashboard />} />

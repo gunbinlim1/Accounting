@@ -45,6 +45,8 @@ export interface I9Document {
 export interface DocCopy {
   fileName: string
   uploadedAt: string
+  /** 저장소(payroll-docs 버킷) 경로 */
+  path?: string
 }
 
 /** Form I-9 주요 항목 */
@@ -86,8 +88,12 @@ export interface Employee {
   pretaxDeferralRate: number
   active: boolean
   hireDate: string
-  /** 보안상 SSN은 뒤 4자리만 저장 */
+  /** 화면 표시용 SSN 뒤 4자리 */
   ssnLast4: string
+  /** 새로 입력한 SSN 9자리 — 저장 시 서버에서 암호화하고 메모리에서 지움 */
+  ssnFull?: string
+  /** SSN 전체가 서버에 암호화 저장되어 있음 */
+  ssnOnFile?: boolean
   dateOfBirth?: string
   email?: string
   phone?: string
@@ -116,6 +122,8 @@ export interface BankAccount {
   routingLast4: string
   accountLast4: string
   type: 'checking' | 'savings'
+  /** 전체 번호가 서버에 암호화 저장되어 있음 */
+  onFile?: boolean
 }
 
 export interface UploadedDoc {
@@ -124,6 +132,8 @@ export interface UploadedDoc {
   uploadedAt: string
   /** 자동 입력된 칸 수 */
   autoFilled: number
+  /** 저장소 경로 */
+  path?: string
 }
 
 /** Fringe Benefit 한 건 (현금이 아닌 혜택의 가치) */
@@ -297,6 +307,8 @@ export interface CompanyDoc {
   uploadedAt: string
   /** 자동 입력된 항목 */
   filled: string[]
+  /** 저장소 경로 */
+  path?: string
 }
 
 export interface Authorizations {
@@ -349,5 +361,5 @@ export interface CompanyData {
 
 export type Session =
   | { role: 'client'; companyId: string; name: string; email: string }
-  | { role: 'firm'; name: string; email: string }
+  | { role: 'firm'; name: string; email: string; title?: string }
   | { role: 'employee'; companyId: string; employeeId: string; name: string; email: string }
