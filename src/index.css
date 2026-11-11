@@ -1260,3 +1260,14 @@ h1 .status-badge { margin-left: 0.5rem; font-size: 0.8rem; position: relative; t
   .industry-grid, .form-grid.name-grid { grid-template-columns: 1fr; }
 }
 .signup-link { width: 100%; margin-top: 0.6rem; justify-content: center; }
+.copy-upload {
+  position: relative; display: flex; align-items: center; gap: 0.65rem; padding: 0.7rem 0.85rem; border-radius: 10px;
+  border: 1px dashed var(--accent); background: var(--accent-soft); color: var(--accent); cursor: pointer; font-size: 0.88rem;
+}
+.copy-upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.copy-upload strong { color: var(--text); font-weight: 600; }
+.copy-upload.done { border-style: solid; border-color: transparent; background: var(--good-soft); color: var(--good); }
+.copy-upload.missing { border-color: var(--crit, #c62828); background: transparent; }
+.warn-text.block, strong.block { display: block; margin-top: 0.3rem; }
+.doc-row .form-grid.four { grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr); }
+@media (max-width: 760px) { .doc-row .form-grid.four { grid-template-columns: 1fr; } }

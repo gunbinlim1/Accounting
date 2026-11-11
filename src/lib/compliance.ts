@@ -19,6 +19,7 @@ export type I9State =
   | { kind: 'section2-due'; due: Date; daysLeft: number }
   | { kind: 'section2-overdue'; due: Date; daysLate: number }
   | { kind: 'documents-missing' }
+  | { kind: 'copies-missing' }
   | { kind: 'auth-expiring'; expires: Date; daysLeft: number }
   | { kind: 'auth-expired'; expires: Date }
 
@@ -37,7 +38,9 @@ export function i9State(e: Employee, today: Date): I9State {
     return diff < 0 ? { kind: 'section2-overdue', due, daysLate: -diff } : { kind: 'section2-due', due, daysLeft: diff }
   }
   const needed = i9.documentPath === 'A' ? 1 : 2
-  if (i9.documents.filter((d) => d.title.trim()).length < needed) return { kind: 'documents-missing' }
+  const docs = i9.documents.filter((d) => d.title.trim())
+  if (docs.length < needed) return { kind: 'documents-missing' }
+  if (docs.slice(0, needed).some((d) => !d.copy)) return { kind: 'copies-missing' }
   if (i9.citizenship === 'authorized' && i9.workAuthExpires) {
     const expires = parseISODate(i9.workAuthExpires)
     const left = daysBetween(today, expires)
@@ -61,6 +64,8 @@ export function i9Badge(state: I9State, t: (ko: string, en: string) => string): 
       return { tone: 'crit', label: t(`I-9 기한 ${state.daysLate}일 초과`, `I-9 ${state.daysLate}d overdue`) }
     case 'documents-missing':
       return { tone: 'warn', label: t('I-9 서류 부족', 'I-9 documents missing') }
+    case 'copies-missing':
+      return { tone: 'warn', label: t('신분증 사본 미업로드', 'ID copies missing') }
     case 'auth-expiring':
       return { tone: 'warn', label: t(`취업허가 만료 D-${state.daysLeft}`, `Work auth expires in ${state.daysLeft}d`) }
     case 'auth-expired':

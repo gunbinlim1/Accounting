@@ -3,6 +3,7 @@ import { defaultW4 } from '../lib/federalWithholding'
 import { splitName } from '../lib/names'
 import { toISODate } from '../lib/schedule'
 import type { ActivityEvent, Authorizations, Company, Employee, FringeEntry, PayMethod, RoleId } from '../types'
+import { demoBank, withCopies } from './demoHelpers'
 import { sampleEmployees } from './sampleEmployees'
 
 /** 데모 회계법인 계정 (가상) */
@@ -32,14 +33,14 @@ function staff(prefix: string, name: string, role: RoleId, hireDate: string, ext
     w4: { ...defaultW4, signedDate: hireDate },
     i9: {
       citizenship: 'citizen', section1Date: hireDate, documentPath: 'BC', section2Date: hireDate,
-      documents: [
+      documents: withCopies([
         { title: "Driver's License", issuer: 'Texas DPS', numberLast4: '5521', expires: '2030-01-31' },
-        { title: 'Social Security Card', issuer: 'SSA', numberLast4: '0907' },
-      ],
+        { title: 'Social Security Card', issuer: 'Social Security Administration', numberLast4: '0907' },
+      ], name, hireDate),
     },
     email: `${name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/^\.|\.$/g, '')}@mail.example`,
     payMethod: 'direct_deposit',
-    bank: { routingLast4: '0021', accountLast4: String(2000 + ((seq * 37) % 7000)).slice(-4), type: 'checking' },
+    bank: demoBank(seq),
     eConsent: true,
     ...extra,
   }
@@ -100,7 +101,7 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
   })
   const taqueria = baseCompany({
     id: 'el-sol', legalName: 'El Sol Foods Inc.', dba: 'Taqueria El Sol', ein: '74-7654321', twcAccount: '99-654321-0',
-    sutaRate: 0.019, depositSchedule: 'monthly', authorizations: { ...signed, twcAgent: 'pending' }, ownerName: 'Luis Hernández', ownerEmail: 'luis@elsol.example', phone: '(713) 555-0188',
+    sutaRate: 0.019, authorizations: { ...signed, twcAgent: 'pending' }, ownerName: 'Luis Hernández', ownerEmail: 'luis@elsol.example', phone: '(713) 555-0188',
     address: { street: '6115 Hillcroft Ave', city: 'Houston', state: 'TX', zip: '77081' },
   })
   const pho = baseCompany({
@@ -116,6 +117,19 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
     address: { street: '4100 Tech Ridge Blvd', city: 'Austin', state: 'TX', zip: '78753' },
   })
 
+  const lotus = baseCompany({
+    id: 'lotus-spa', legalName: 'Lotus Beauty Services LLC', dba: 'Lotus Nail & Spa', ein: '83-2718281', twcAccount: '99-271828-1',
+    industry: 'service', tipsEnabled: true, sutaRate: 0.027, authorizations: signed,
+    ownerName: 'Helen Vu', ownerEmail: 'helen@lotusspa.example', phone: '(281) 555-0147',
+    address: { street: '10500 Westheimer Rd Ste B', city: 'Houston', state: 'TX', zip: '77042' },
+  })
+  const market = baseCompany({
+    id: 'gulfway-market', legalName: 'Gulfway Trading Co.', dba: 'Gulfway Asian Market', ein: '81-1618033', twcAccount: '99-161803-3',
+    industry: 'retail', tipsEnabled: false, sutaRate: 0.021, authorizations: { ...signed, bankDebit: 'pending' },
+    ownerName: 'Kevin Lee', ownerEmail: 'kevin@gulfwaymarket.example', phone: '(832) 555-0175',
+    address: { street: '9393 Bellaire Blvd', city: 'Houston', state: 'TX', zip: '77036' },
+  })
+
   // 기존 샘플 직원은 Seoul Garden에 소속
   const seoulStaff = sampleEmployees(today).map((e, i) => {
     const id = `SG-${String(i + 1).padStart(3, '0')}`
@@ -126,7 +140,7 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
       email: x?.email || undefined,
       payMethod: x?.payMethod ?? 'client_check',
       eConsent: x?.eConsent ?? false,
-      bank: x?.payMethod === 'direct_deposit' ? { routingLast4: '0021', accountLast4: String(4100 + i * 7), type: 'checking' as const } : undefined,
+      bank: x?.payMethod === 'direct_deposit' ? demoBank(100 + i) : undefined,
     }
   })
 
@@ -182,6 +196,35 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
       status: 'draft',
       activity: [
         ev('ls1', 50, 'client', 'Daniel Cho', 'settings', '업종 설정: 생산·제조업 (팁 기능 없음)', 'Industry set: Manufacturing (no tips)'),
+      ],
+    },
+    {
+      company: lotus,
+      employees: [
+        staff('LN', 'Tina Ho', 'stylist', '2023-03-06', { rate: 13 }),
+        staff('LN', 'Amy Dang', 'stylist', '2024-05-20'),
+        staff('LN', 'Jasmine Cruz', 'receptionist', '2025-02-10', { payMethod: 'client_check', bank: undefined, eConsent: false }),
+        staff('LN', 'Rachel Kim', 'housekeeper', '2025-09-15', { rate: 13.5 }),
+        staff('LN', 'Helen Vu Tran', 'svc_manager', '2022-07-01', { rate: 50_000, jobTitle: 'Spa manager' }),
+      ],
+      status: 'submitted',
+      activity: [
+        ev('ln1', 8, 'client', 'Helen Vu', 'submit', '11월 회차 급여 제출', 'Submitted the November payroll'),
+      ],
+    },
+    {
+      company: market,
+      employees: [
+        staff('GM', 'Sophia Chen', 'cashier', '2024-08-12'),
+        staff('GM', 'Brian Nguyen', 'sales_associate', '2023-10-02', { rate: 14 }),
+        staff('GM', 'Oscar Ramos', 'stock_clerk', '2025-04-07'),
+        staff('GM', 'Leo Martinez', 'warehouse', '2022-11-14', { rate: 17 }),
+        staff('GM', 'Danny Park', 'delivery_driver', '2024-01-22', { payMethod: 'firm_check', bank: undefined }),
+        staff('GM', 'Grace Liu', 'store_manager', '2021-06-01', { pretaxDeferralRate: 0.05 }),
+      ],
+      status: 'draft',
+      activity: [
+        ev('gm1', 72, 'client', 'Kevin Lee', 'settings', '업종 설정: 도소매업 (팁 기능 없음)', 'Industry set: Retail & wholesale (no tips)'),
       ],
     },
   ]

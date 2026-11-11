@@ -10,9 +10,12 @@ import { splitName } from './lib/names'
 import { ytdFor } from './lib/ytd'
 import type { Company, CompanyData, Employee, PayRun, Session, TaxDeposit, TimeEntry } from './types'
 
-const STORAGE_KEY = 'payday-portal-v3'
-/** v2: 직원 이름 한 칸(name), 업종 없음(모두 레스토랑) → v3로 옮김 */
-const LEGACY_KEY = 'payday-portal-v2'
+const STORAGE_KEY = 'payday-portal-v4'
+/**
+ * 옛 저장 데이터: v2(이름 한 칸·업종 없음), v3(계좌 뒤 4자리만·서류 사본 없음).
+ * 데모 고객사는 새 시드로 바꾸고, 사용자가 직접 만든 고객사만 옮겨 옴.
+ */
+const LEGACY_KEYS = ['payday-portal-v3', 'payday-portal-v2']
 const SESSION_KEY = 'payday-portal-session-v1'
 
 export const currentPayDate = (from = new Date()) =>
@@ -122,10 +125,13 @@ function loadCompanies(): CompanyData[] {
   const valid = (v: unknown) => Array.isArray(v) && v.length > 0 && 'deposits' in (v as object[])[0]
   const current = load<CompanyData[] | null>(STORAGE_KEY, () => null, valid)
   if (current) return current.map(migrateCompany)
-  const legacy = load<CompanyData[] | null>(LEGACY_KEY, () => null, valid)
-  if (legacy) {
-    save(LEGACY_KEY, null)
-    return legacy.map(migrateCompany)
+  for (const key of LEGACY_KEYS) {
+    const legacy = load<CompanyData[] | null>(key, () => null, valid)
+    if (!legacy) continue
+    for (const k of LEGACY_KEYS) save(k, null)
+    const seed = initialCompanies()
+    const demoIds = new Set([...seed.map((c) => c.company.id), 'seoul-garden', 'el-sol', 'pho-bellaire', 'lone-star-fab'])
+    return [...seed, ...legacy.filter((c) => !demoIds.has(c.company.id)).map(migrateCompany)]
   }
   return initialCompanies()
 }

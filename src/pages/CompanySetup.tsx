@@ -1,13 +1,15 @@
 import { ArrowLeft, ArrowRight, Building2, Check, Languages } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import CompanyDocUpload from '../components/CompanyDocUpload'
 import { FeatureList, IndustryPicker } from '../components/IndustryPicker'
 import { industries, rolesFor } from '../config/industries'
+import type { EinExtract, TwcExtract } from '../lib/companyDocs'
 import { firmAccount } from '../data/demoPortal'
 import { industryLabel, payLabel, roleLabel } from '../lib/labels'
 import { newCompanyData, usePortal } from '../portal'
 import { usePrefs } from '../prefs'
-import type { Company, DepositSchedule, Industry } from '../types'
+import type { Company, CompanyDoc, DepositSchedule, Industry } from '../types'
 
 function Field({ label, hint, error, children, wide }: { label: string; hint?: string; error?: string; children: ReactNode; wide?: boolean }) {
   return (
@@ -36,11 +38,12 @@ interface Draft {
   depositSchedule: DepositSchedule
   ownerName: string
   ownerEmail: string
+  documents: CompanyDoc[]
 }
 
 const blank: Draft = {
   industry: null, tipsEnabled: false, legalName: '', dba: '', ein: '', phone: '', street: '', city: 'Houston', state: 'TX', zip: '',
-  twcAccount: '', sutaRate: '2.7', depositSchedule: 'monthly', ownerName: '', ownerEmail: '',
+  twcAccount: '', sutaRate: '2.7', depositSchedule: 'semiweekly', ownerName: '', ownerEmail: '', documents: [],
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) || 'company'
@@ -48,7 +51,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 /**
  * 새 고객사 포털 만들기: 업종 → 급여 구성 → 회사 정보 → 확인.
  * 업종에 따라 직무 템플릿·급여 형태·팁 기능이 정해집니다.
- * - client: 대표가 직접 시작 (/signup) → 만든 뒤 바로 로그인
+ * - client: 대표가 직접 시작 (/signup) → 만든 뒤 바로 로그인해 홈으로
  * - firm: 회계법인이 고객사를 추가 (/firm/new)
  */
 export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
@@ -110,6 +113,7 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
       phone: d.phone.trim(),
       cutoffBusinessDays: 2,
       authorizations: { form8655: 'pending', twcAgent: 'pending', bankDebit: 'pending' },
+      documents: d.documents,
     }
     if (mode === 'firm') {
       addCompany(newCompanyData(company, session?.name ?? firmAccount.name, 'firm'))
@@ -117,9 +121,25 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
     } else {
       addCompany(newCompanyData(company, company.ownerName, 'client'))
       login({ role: 'client', companyId: id, name: company.ownerName, email: company.ownerEmail })
-      navigate('/employees/new')
+      navigate('/')
     }
   }
+
+
+  const docRecord = (kind: CompanyDoc['kind'], fileName: string, filled: string[]): CompanyDoc => ({ kind, fileName, uploadedAt: new Date().toISOString(), filled })
+  const applyEin = (x: EinExtract, fileName: string) =>
+    setD((p) => ({
+      ...p,
+      ein: x.ein ?? p.ein, legalName: x.legalName ?? p.legalName, dba: x.dba ?? p.dba,
+      street: x.street ?? p.street, city: x.city ?? p.city, state: x.state ?? p.state, zip: x.zip ?? p.zip,
+      documents: [...p.documents.filter((doc) => doc.kind !== 'EIN'), docRecord('EIN', fileName, Object.keys(x))],
+    }))
+  const applyTwc = (x: TwcExtract, fileName: string) =>
+    setD((p) => ({
+      ...p,
+      twcAccount: x.twcAccount ?? p.twcAccount, sutaRate: x.sutaRate ?? p.sutaRate, legalName: p.legalName || x.legalName || '',
+      documents: [...p.documents.filter((doc) => doc.kind !== 'TWC'), docRecord('TWC', fileName, Object.keys(x))],
+    }))
 
   const profile = d.industry ? industries[d.industry] : null
   const tipsOn = !!profile?.tipsAllowed && d.tipsEnabled
@@ -194,6 +214,7 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
 
         {step === 2 && (
           <>
+            <CompanyDocUpload onEin={applyEin} onTwc={applyTwc} />
             <h2>{t('사업자 정보', 'Business')}</h2>
             <div className="form-grid">
               <Field label={t('법인명 (Legal name)', 'Legal name')} error={err('legalName')}>
@@ -227,7 +248,7 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
               <Field label={t('TWC 실업세율', 'TWC tax rate')} error={err('sutaRate')} hint={t('신규 고용주는 보통 2.7%', 'New employers usually 2.7%')}>
                 <div className="input-affix"><input inputMode="decimal" value={d.sutaRate} onChange={(e) => set('sutaRate', e.target.value)} /><span>%</span></div>
               </Field>
-              <Field label={t('IRS 예치 주기', 'IRS deposit schedule')} hint={t('신규 고용주는 보통 월별', 'New employers are usually monthly')}>
+              <Field label={t('IRS 예치 주기', 'IRS deposit schedule')} hint={t('기본값: 반주별 — 더 자주 예치해도 기한 위반이 아니에요', 'Default: semiweekly — depositing more often is never late')}>
                 <div className="segmented">
                   {(['monthly', 'semiweekly'] as DepositSchedule[]).map((s) => (
                     <button type="button" key={s} className={d.depositSchedule === s ? 'on' : ''} onClick={() => set('depositSchedule', s)}>
@@ -264,7 +285,7 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
             <p className="muted small">
               {mode === 'firm'
                 ? t('만들면 대표에게 보낼 초대 이메일과 IRS 8655·TWC·계좌 인출 위임 서명 요청이 준비됩니다 (데모: 이메일 발송 없음).', 'Creating it prepares the owner invite and the 8655, TWC and bank-debit signature requests (demo: no email is sent).')
-                : t('만든 뒤 바로 첫 직원 등록으로 이동해요. 회사 정보 화면에서 IRS 8655·TWC·계좌 인출 위임에 서명해 주세요.', 'Next you’ll add your first employee. Sign the 8655, TWC and bank-debit authorizations from the Company page.')}
+                : t('만든 뒤 홈 화면으로 이동해요. 직원을 등록하고, 회사 정보 화면에서 IRS 8655·TWC·계좌 인출 위임에 서명해 주세요.', 'You’ll land on your home page. Add employees and sign the 8655, TWC and bank-debit authorizations from the Company page.')}
             </p>
           </>
         )}

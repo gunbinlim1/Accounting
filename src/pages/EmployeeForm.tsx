@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, BriefcaseBusiness, Check, FileCheck2, IdCard, Lock, ShieldCheck, UserRound } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BriefcaseBusiness, Check, CheckCircle2, FileCheck2, FileUp, IdCard, Lock, ShieldCheck, UserRound } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
@@ -6,6 +6,7 @@ import DocUpload from '../components/DocUpload'
 import type { I9Extract, W4Extract } from '../lib/docExtract'
 import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import { defaultTimeFor, industries, roleTemplate, rolesFor } from '../config/industries'
+import { digits, isValidAccount, isValidRouting, maskAccount } from '../lib/bank'
 import { addBusinessDays, keepLast4, maskSsn } from '../lib/compliance'
 import { defaultW4 } from '../lib/federalWithholding'
 import { formatCurrency, formatCurrencyWhole, formatDate } from '../lib/format'
@@ -17,13 +18,15 @@ import { segmentsOf } from '../lib/segments'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
-import type { CitizenshipStatus, Company, Employee, FilingStatus, PayMethod, PayType, RoleId, UploadedDoc } from '../types'
+import type { CitizenshipStatus, Company, DocCopy, Employee, FilingStatus, PayMethod, PayType, RoleId, UploadedDoc } from '../types'
 
 interface DocDraft {
   title: string
   issuer: string
   number: string
   expires: string
+  /** 고용주가 받은 서류 사본 (필수) */
+  copy?: DocCopy
 }
 
 interface Draft {
@@ -68,9 +71,11 @@ interface Draft {
   payMethod: PayMethod
   routing: string
   account: string
+  /** 계좌번호 확인 입력 */
+  accountConfirm: string
   bankType: 'checking' | 'savings'
-  /** 저장된 계좌 뒤 4자리 "routing|account" */
-  bankExisting: string
+  /** 전체 번호 없이 뒤 4자리만 저장된 옛 계좌 "routing|account" */
+  bankLegacy: string
   eConsent: boolean
   documents: UploadedDoc[]
   /** 서류에서 자동 입력된 항목 이름 */
@@ -79,6 +84,14 @@ interface Draft {
 
 const today = () => toISODate(new Date())
 const blankDoc: DocDraft = { title: '', issuer: '', number: '', expires: '' }
+
+/** 기본 I-9 서류: 운전면허증(List B) + 사회보장카드(List C) */
+const defaultDocs = (): DocDraft[] => [
+  { ...blankDoc, title: "Driver's License" },
+  { ...blankDoc, title: 'Social Security Card', issuer: 'Social Security Administration' },
+]
+const isDefaultDocs = (docs: DocDraft[]) =>
+  docs.every((x, i) => !x.copy && !x.number && (!x.title || x.title === defaultDocs()[i]?.title))
 
 /** 업종 기본 직무 (팁 기능이 꺼져 있어 숨겨진 직무면 첫 번째 직무) */
 function defaultRoleFor(company: Company): RoleId {
@@ -97,14 +110,14 @@ function newDraft(company: Company): Draft {
     w4Received: true, filingStatus: 'single', multipleJobs: false, dependents: '0', children: '0', otherDependents: '0',
     otherIncome: '0', deductions: '0', extraWithholding: '0', exempt: false, w4Signed: today(),
     citizenship: 'citizen', uscis: '', workAuthExpires: '', section1Date: today(),
-    documentPath: 'A', docs: [{ ...blankDoc }, { ...blankDoc }], section2Date: '',
-    payMethod: 'direct_deposit', routing: '', account: '', bankType: 'checking', bankExisting: '', eConsent: true, documents: [], autoFilled: [],
+    documentPath: 'BC', docs: defaultDocs(), section2Date: '',
+    payMethod: 'direct_deposit', routing: '', account: '', accountConfirm: '', bankType: 'checking', bankLegacy: '', eConsent: true, documents: [], autoFilled: [],
   }
 }
 
 function fromEmployee(e: Employee): Draft {
   const w4 = e.w4 ?? defaultW4
-  const docs = e.i9.documents.map((d) => ({ title: d.title, issuer: d.issuer, number: d.numberLast4, expires: d.expires ?? '' }))
+  const docs: DocDraft[] = e.i9.documents.map((d) => ({ title: d.title, issuer: d.issuer, number: d.numberLast4, expires: d.expires ?? '', copy: d.copy }))
   while (docs.length < 2) docs.push({ ...blankDoc })
   return {
     id: e.id, active: e.active, lastName: e.lastName, firstName: e.firstName, middleInitial: e.middleInitial ?? '', role: e.role, jobTitle: e.jobTitle ?? '', payType: e.payType, rate: String(e.rate),
@@ -116,8 +129,8 @@ function fromEmployee(e: Employee): Draft {
     extraWithholding: String(w4.extraWithholding), exempt: w4.exempt, w4Signed: w4.signedDate || today(),
     citizenship: e.i9.citizenship, uscis: e.i9.uscisLast4 ?? '', workAuthExpires: e.i9.workAuthExpires ?? '',
     section1Date: e.i9.section1Date ?? '', documentPath: e.i9.documentPath, docs, section2Date: e.i9.section2Date ?? '',
-    payMethod: e.payMethod ?? 'client_check', routing: '', account: '', bankType: e.bank?.type ?? 'checking',
-    bankExisting: e.bank ? `${e.bank.routingLast4}|${e.bank.accountLast4}` : '', eConsent: !!e.eConsent, documents: e.documents ?? [], autoFilled: [],
+    payMethod: e.payMethod ?? 'client_check', routing: e.bank?.routingNumber ?? '', account: e.bank?.accountNumber ?? '', accountConfirm: e.bank?.accountNumber ?? '',
+    bankType: e.bank?.type ?? 'checking', bankLegacy: e.bank && !e.bank.accountNumber ? `${e.bank.routingLast4}|${e.bank.accountLast4}` : '', eConsent: !!e.eConsent, documents: e.documents ?? [], autoFilled: [],
   }
 }
 
@@ -126,7 +139,7 @@ const num = (s: string) => (s.trim() === '' ? 0 : Number(s))
 function toEmployee(d: Draft, id: string): Employee {
   const docs = (d.documentPath === 'A' ? d.docs.slice(0, 1) : d.docs.slice(0, 2))
     .filter((x) => x.title.trim())
-    .map((x) => ({ title: x.title.trim(), issuer: x.issuer.trim(), numberLast4: keepLast4(x.number), expires: x.expires || undefined }))
+    .map((x) => ({ title: x.title.trim(), issuer: x.issuer.trim(), numberLast4: keepLast4(x.number), expires: x.expires || undefined, copy: x.copy }))
   const needsUscis = d.citizenship === 'lpr' || d.citizenship === 'authorized'
   return {
     id,
@@ -165,8 +178,10 @@ function toEmployee(d: Draft, id: string): Employee {
     bank:
       d.payMethod === 'direct_deposit'
         ? {
-            routingLast4: d.routing ? keepLast4(d.routing) : d.bankExisting.split('|')[0] ?? '',
-            accountLast4: d.account ? keepLast4(d.account) : d.bankExisting.split('|')[1] ?? '',
+            routingNumber: digits(d.routing),
+            accountNumber: digits(d.account),
+            routingLast4: keepLast4(d.routing),
+            accountLast4: keepLast4(d.account),
             type: d.bankType,
           }
         : undefined,
@@ -248,15 +263,15 @@ export default function EmployeeForm() {
       if (!(p >= 0 && p <= 100)) e.pretax = t('0~100 사이', '0–100')
     }
     if (step === 1) {
-      const digits = d.ssn.replace(/\D/g, '')
-      if (!d.ssnLast4Existing && digits.length !== 9 && digits.length !== 4) e.ssn = t('SSN 9자리 또는 뒤 4자리를 입력하세요', 'Enter the 9-digit SSN or its last 4')
-      if (d.ssn && digits.length !== 9 && digits.length !== 4) e.ssn = t('숫자 9자리 또는 4자리', '9 or 4 digits')
+      const ssnDigits = d.ssn.replace(/\D/g, '')
+      if (!d.ssnLast4Existing && ssnDigits.length !== 9 && ssnDigits.length !== 4) e.ssn = t('SSN 9자리 또는 뒤 4자리를 입력하세요', 'Enter the 9-digit SSN or its last 4')
+      if (d.ssn && ssnDigits.length !== 9 && ssnDigits.length !== 4) e.ssn = t('숫자 9자리 또는 4자리', '9 or 4 digits')
       if (d.zip && !/^\d{5}(-\d{4})?$/.test(d.zip.trim())) e.zip = t('ZIP 5자리', '5-digit ZIP')
       if (d.payMethod === 'direct_deposit') {
-        if (!d.bankExisting || d.routing) {
-          if (d.routing.replace(/\D/g, '').length !== 9) e.routing = t('라우팅 번호 9자리', '9-digit routing number')
-          if (d.account.replace(/\D/g, '').length < 4) e.account = t('계좌번호를 입력하세요', 'Enter the account number')
-        }
+        if (!isValidRouting(d.routing))
+          e.routing = digits(d.routing).length === 9 ? t('유효하지 않은 라우팅 번호예요 (체크섬 불일치)', 'Not a valid routing number (checksum)') : t('라우팅 번호 9자리 전체를 입력하세요', 'Enter the full 9-digit routing number')
+        if (!isValidAccount(d.account)) e.account = t('계좌번호 전체(숫자 4~17자리)를 입력하세요', 'Enter the full account number (4–17 digits)')
+        else if (digits(d.account) !== digits(d.accountConfirm)) e.accountConfirm = t('계좌번호가 일치하지 않아요', 'Account numbers don’t match')
       }
       if (d.eConsent && !/\S+@\S+\.\S+/.test(d.email)) e.email = t('전자 수령에는 이메일이 필요해요', 'Email is required for electronic delivery')
     }
@@ -269,10 +284,9 @@ export default function EmployeeForm() {
       if ((d.citizenship === 'lpr' || d.citizenship === 'authorized') && keepLast4(d.uscis).length !== 4)
         e.uscis = t('A-Number/USCIS 번호를 입력하세요', 'Enter the A-Number/USCIS number')
       if (d.citizenship === 'authorized' && !d.workAuthExpires) e.workAuthExpires = t('취업허가 만료일을 입력하세요', 'Enter the expiration date')
-      if (d.section2Date) {
-        const need = d.documentPath === 'A' ? 1 : 2
-        if (d.docs.slice(0, need).some((x) => !x.title.trim())) e.docs = t('Section 2를 완료하려면 서류를 모두 입력하세요', 'Enter all documents to complete Section 2')
-      }
+      const need = d.documentPath === 'A' ? 1 : 2
+      if (d.docs.slice(0, need).some((x) => !x.title.trim())) e.docs = t('서류명을 입력하세요', 'Enter the document titles')
+      else if (d.docs.slice(0, need).some((x) => !x.copy)) e.docs = t('서류 사본을 모두 업로드해야 다음으로 넘어갈 수 있어요', 'Upload a copy of every document to continue')
     }
     return e
   }, [d, step, t, company.tipsEnabled])
@@ -523,17 +537,26 @@ export default function EmployeeForm() {
                 ))}
               </div>
               {d.payMethod === 'direct_deposit' && (
-                <div className="form-grid three">
-                  <Field label={t('라우팅 번호', 'Routing number')} error={err('routing')} hint={d.bankExisting ? t(`저장됨: ****${d.bankExisting.split('|')[0]} — 바꿀 때만 입력`, `On file: ****${d.bankExisting.split('|')[0]}`) : t('뒤 4자리만 저장', 'Last 4 stored')}>
-                    <input inputMode="numeric" autoComplete="off" value={d.routing} onChange={(e) => set('routing', e.target.value)} placeholder="111000025" />
-                  </Field>
-                  <Field label={t('계좌번호', 'Account number')} error={err('account')} hint={d.bankExisting ? t(`저장됨: ****${d.bankExisting.split('|')[1]}`, `On file: ****${d.bankExisting.split('|')[1]}`) : t('뒤 4자리만 저장', 'Last 4 stored')}>
-                    <input inputMode="numeric" autoComplete="off" value={d.account} onChange={(e) => set('account', e.target.value)} />
-                  </Field>
-                  <Field label={t('계좌 종류', 'Account type')}>
-                    <Segmented<'checking' | 'savings'> value={d.bankType} onChange={(v) => set('bankType', v)} options={[{ value: 'checking', label: 'Checking' }, { value: 'savings', label: 'Savings' }]} />
-                  </Field>
-                </div>
+                <>
+                  <p className="muted small">
+                    {t('직접입금(ACH)은 라우팅 번호 9자리와 계좌번호 전체가 있어야 처리돼요. 직원의 void 수표나 은행 직접입금 양식을 보고 입력하세요.', 'Direct deposit (ACH) needs the full 9-digit routing number and the full account number. Copy them from a voided check or the bank’s direct deposit form.')}
+                    {d.bankLegacy && <strong className="block warn-text">{t(`기존 기록은 뒤 4자리(****${d.bankLegacy.split('|')[1]})만 있어요 — 전체 번호를 다시 입력해 주세요.`, `Only the last 4 (****${d.bankLegacy.split('|')[1]}) are on file — re-enter the full numbers.`)}</strong>}
+                  </p>
+                  <div className="form-grid">
+                    <Field label={t('라우팅 번호 (9자리 전체)', 'Routing number (all 9 digits)')} error={err('routing')}>
+                      <input inputMode="numeric" autoComplete="off" maxLength={11} value={d.routing} onChange={(e) => set('routing', e.target.value)} placeholder="111000025" />
+                    </Field>
+                    <Field label={t('계좌 종류', 'Account type')}>
+                      <Segmented<'checking' | 'savings'> value={d.bankType} onChange={(v) => set('bankType', v)} options={[{ value: 'checking', label: 'Checking' }, { value: 'savings', label: 'Savings' }]} />
+                    </Field>
+                    <Field label={t('계좌번호 (전체)', 'Account number (full)')} error={err('account')}>
+                      <input inputMode="numeric" autoComplete="off" maxLength={20} value={d.account} onChange={(e) => set('account', e.target.value)} />
+                    </Field>
+                    <Field label={t('계좌번호 확인', 'Confirm account number')} error={err('accountConfirm')}>
+                      <input inputMode="numeric" autoComplete="off" maxLength={20} value={d.accountConfirm} onChange={(e) => set('accountConfirm', e.target.value)} onPaste={(e) => e.preventDefault()} />
+                    </Field>
+                  </div>
+                </>
               )}
               <label className="toggle">
                 <input type="checkbox" checked={d.eConsent} onChange={(e) => set('eConsent', e.target.checked)} />
@@ -658,9 +681,13 @@ export default function EmployeeForm() {
                   </span>
                 )}
               </h3>
+              <p className="muted small">
+                {t('기본 서류는 운전면허증(List B)과 사회보장카드(List C)이며, 원본을 확인한 뒤 사본을 꼭 업로드해야 합니다. 직원이 여권 등 다른 서류를 내면 서류 종류를 바꾸고 그 사본을 올리세요.',
+                  "By default, collect the Driver's License (List B) and Social Security card (List C), examine the originals and upload copies. If the employee presents other documents (e.g. a passport), switch the list and upload those copies.")}
+              </p>
               <Segmented<'A' | 'BC'>
                 value={d.documentPath}
-                onChange={(v) => set('documentPath', v)}
+                onChange={(v) => setD((p) => ({ ...p, documentPath: v, docs: isDefaultDocs(p.docs) ? (v === 'A' ? [{ ...blankDoc }, { ...blankDoc }] : defaultDocs()) : p.docs }))}
                 options={[
                   { value: 'A', label: t('List A 1개', 'One List A') },
                   { value: 'BC', label: t('List B + List C', 'List B + List C') },
@@ -689,6 +716,14 @@ export default function EmployeeForm() {
                         <input type="date" value={d.docs[i].expires} onChange={(e) => setDoc(i, { expires: e.target.value })} />
                       </Field>
                     </div>
+                    <label className={`copy-upload${d.docs[i].copy ? ' done' : showErrors ? ' missing' : ''}`}>
+                      {d.docs[i].copy ? <CheckCircle2 size={18} aria-hidden /> : <FileUp size={18} aria-hidden />}
+                      <span>
+                        <strong>{d.docs[i].copy ? d.docs[i].copy!.fileName : t(`${d.docs[i].title || '서류'} 사본 업로드 (필수)`, `Upload a copy of the ${d.docs[i].title || 'document'} (required)`)}</strong>
+                        <small className="muted block">{d.docs[i].copy ? t('다른 파일로 바꾸려면 누르세요', 'Click to replace') : t('앞·뒷면 사진 또는 스캔 PDF', 'Photo or scan of front and back')}</small>
+                      </span>
+                      <input type="file" accept=".pdf,image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) setDoc(i, { copy: { fileName: f.name, uploadedAt: new Date().toISOString() } }) }} />
+                    </label>
                   </div>
                 )
               })}
@@ -725,6 +760,7 @@ export default function EmployeeForm() {
                   <dt>{t('지급', 'Pay by')}</dt>
                   <dd>
                     {{ direct_deposit: t('직접입금', 'Direct deposit'), firm_check: t('회계법인 인쇄 수표', 'CPA-printed check'), client_check: t('대표님 수표', 'Your own check') }[d.payMethod]}
+                    {d.payMethod === 'direct_deposit' && ` · ${t('라우팅', 'Routing')} ${digits(d.routing)} · ${t('계좌', 'Acct')} ${maskAccount(digits(d.account))} (${d.bankType})`}
                     {' · '}{d.eConsent ? t('전자 수령 동의', 'E-delivery consent') : t('종이 수령', 'Paper')}
                   </dd>
                 </div>
@@ -738,6 +774,7 @@ export default function EmployeeForm() {
                   <dt>I-9</dt>
                   <dd>
                     {citizenshipLabel(d.citizenship, t)} · {d.section2Date ? t('Section 2 완료', 'Section 2 done') : t('Section 2 대기', 'Section 2 pending')}
+                    {' · '}{t('사본', 'Copies')}: {(d.documentPath === 'A' ? d.docs.slice(0, 1) : d.docs.slice(0, 2)).map((x) => `${x.title} ${x.copy ? '✓' : '—'}`).join(', ')}
                   </dd>
                 </div>
               </dl>

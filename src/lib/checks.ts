@@ -118,6 +118,13 @@ export function runChecks({ employees, time, results, previous, ytdGross, standa
         en: `${n} reaches the Social Security wage base this run.` })
     }
 
+    // ── 직접입금 계좌
+    if (e.payMethod === 'direct_deposit' && !(e.bank?.routingNumber && e.bank.accountNumber)) {
+      add({ id: `${e.id}-bank`, severity: 'warning', employeeId: e.id,
+        ko: `${n}님은 직접입금인데 라우팅·계좌번호 전체가 없습니다. 직원 정보에서 전체 번호를 입력하지 않으면 이번 회차는 수표로 지급해야 해요.`,
+        en: `${n} is on direct deposit but the full routing/account numbers are missing. Enter them, or this run must be paid by check.` })
+    }
+
     // ── W-4 / I-9
     if (!e.w4) {
       add({ id: `${e.id}-w4`, severity: 'warning', employeeId: e.id,
@@ -129,6 +136,10 @@ export function runChecks({ employees, time, results, previous, ytdGross, standa
       add({ id: `${e.id}-i9`, severity: 'warning', employeeId: e.id,
         ko: `${n}님의 I-9 Section 2(서류 확인) 기한이 ${i9.daysLate}일 지났습니다. 급여는 지급하되 즉시 서류를 확인하세요.`,
         en: `${n}'s I-9 Section 2 is ${i9.daysLate} day(s) overdue. Pay wages as usual, but review documents now.` })
+    } else if (i9.kind === 'copies-missing') {
+      add({ id: `${e.id}-i9copy`, severity: 'warning', employeeId: e.id,
+        ko: `${n}님의 I-9 서류 사본(운전면허증·사회보장카드 등)이 업로드되지 않았습니다.`,
+        en: `${n}'s I-9 document copies (driver's license, Social Security card, etc.) haven't been uploaded.` })
     } else if (i9.kind === 'section2-due' || i9.kind === 'section1-missing' || i9.kind === 'documents-missing') {
       add({ id: `${e.id}-i9`, severity: 'warning', employeeId: e.id,
         ko: `${n}님의 I-9가 아직 완료되지 않았습니다.`,

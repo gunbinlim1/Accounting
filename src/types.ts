@@ -38,6 +38,13 @@ export interface I9Document {
   /** 보안상 뒤 4자리만 저장 */
   numberLast4: string
   expires?: string
+  /** 고용주가 받은 서류 사본 (파일 자체는 서버 단계에서 보관, 데모는 기록만) */
+  copy?: DocCopy
+}
+
+export interface DocCopy {
+  fileName: string
+  uploadedAt: string
 }
 
 /** Form I-9 주요 항목 */
@@ -102,6 +109,10 @@ export interface Employee {
 export type PayMethod = 'client_check' | 'firm_check' | 'direct_deposit'
 
 export interface BankAccount {
+  /** ACH 직접입금에 필요한 전체 번호 (2단계 서버에서는 암호화 보관) */
+  routingNumber?: string
+  accountNumber?: string
+  /** 화면 표시용 뒤 4자리 */
   routingLast4: string
   accountLast4: string
   type: 'checking' | 'savings'
@@ -276,6 +287,16 @@ export interface Company {
   cutoffBusinessDays: number
   /** 회계법인 대리 신고·납부 위임 상태 */
   authorizations?: Authorizations
+  /** 업로드한 회사 서류 (SS-4·CP 575, TWC 통지서) */
+  documents?: CompanyDoc[]
+}
+
+export interface CompanyDoc {
+  kind: 'EIN' | 'TWC'
+  fileName: string
+  uploadedAt: string
+  /** 자동 입력된 항목 */
+  filled: string[]
 }
 
 export interface Authorizations {
