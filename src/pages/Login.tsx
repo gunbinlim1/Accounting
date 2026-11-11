@@ -126,7 +126,10 @@ function Shell({ children, variant = 'client' }: { children: ReactNode; variant?
               <li><KeyRound size={18} aria-hidden /> {t('인증 앱 2단계 인증 필수', 'Authenticator app required')}</li>
             </ul>
           </div>
-          <p className="login-foot"><Link to="/login">{t('고객사 로그인은 여기', 'Client sign-in is here')}</Link></p>
+          <p className="login-foot">
+            <Link to="/login">{t('고객사 로그인은 여기', 'Client sign-in is here')}</Link>
+            <span className="build-tag" title={__BUILD_TIME__}> · {__BUILD_ENV__} {__BUILD_SHA__}</span>
+          </p>
         </section>
         <section className="login-panel">
           <button className="lang-switch" onClick={toggleLang}><Languages size={16} aria-hidden /> {lang === 'ko' ? 'English' : '한국어'}</button>
@@ -147,7 +150,10 @@ function Shell({ children, variant = 'client' }: { children: ReactNode; variant?
             <li><KeyRound size={18} aria-hidden /> {t('제출하면 잠기고 모든 변경이 기록됨', 'Submissions lock and every change is logged')}</li>
           </ul>
         </div>
-        <p className="login-foot">{t(`${firmName} 고객 전용 포털`, `${firmName} client portal`)}</p>
+        <p className="login-foot">
+          {t(`${firmName} 고객 전용 포털`, `${firmName} client portal`)}
+          <span className="build-tag" title={__BUILD_TIME__}> · {__BUILD_ENV__} {__BUILD_SHA__}</span>
+        </p>
       </section>
       <section className="login-panel">
         <button className="lang-switch" onClick={toggleLang}><Languages size={16} aria-hidden /> {lang === 'ko' ? 'English' : '한국어'}</button>
