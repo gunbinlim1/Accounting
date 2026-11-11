@@ -123,14 +123,14 @@ function migrateCompany(c: CompanyData): CompanyData {
 }
 
 /**
- * 일회성 정리: 사용자가 시험 삼아 만든 "test"·"123" 고객사 삭제 (요청 2026-11-11).
+ * 일회성 정리: 사용자가 시험 삼아 만든 "test"·"123"·"123123" 고객사 삭제 (요청 2026-11-11).
  * 한 번 실행한 뒤에는 표시를 남겨, 같은 이름으로 새로 만든 회사는 지우지 않음.
  */
-const CLEANUP_KEY = 'payday-cleanup-2026-11-11'
+const CLEANUP_KEY = 'payday-cleanup-2026-11-11b'
 const cleanupTestClients = (list: CompanyData[]): CompanyData[] => {
   if (load<boolean>(CLEANUP_KEY, () => false, (v) => v === true)) return list
   save(CLEANUP_KEY, true)
-  const junk = (s: string) => ['test', '123'].includes(s.trim().toLowerCase())
+  const junk = (s: string) => ['test', '123', '123123'].includes(s.trim().toLowerCase())
   return list.filter((c) => !(junk(c.company.dba) || junk(c.company.legalName)))
 }
 

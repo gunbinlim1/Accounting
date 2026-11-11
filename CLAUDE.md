@@ -22,7 +22,7 @@
 | Lotus Nail & Spa · Helen Vu (helen@lotusspa.example) | 고객 (서비스업, 팁 사용) | 제출됨 |
 | Gulfway Asian Market · Kevin Lee (kevin@gulfwaymarket.example) | 고객 (도소매업, 팁 없음) | 수정 요청, 계좌 인출 미서명 |
 | Demo CPA · Jordan Lee (payroll@democpa.example) | 회계법인 | `/firm` 대기열 |
-고객 데모는 업종별 1곳씩만 둠(사용자 요청). 사용자가 만든 고객사는 회계법인 검토 화면 상단 "고객사 삭제"로 지움. `portal.tsx`의 `cleanupTestClients`는 2026-11-11 요청으로 "test"·"123" 고객사를 브라우저당 한 번만 지우는 일회성 정리. ⌘K 명령 팔레트 → "데모 데이터 초기화".
+고객 데모는 업종별 1곳씩만 둠(사용자 요청). 사용자가 만든 고객사는 회계법인 검토 화면 상단 "고객사 삭제"로 지움. `portal.tsx`의 `cleanupTestClients`는 2026-11-11 요청으로 "test"·"123"·"123123" 고객사를 브라우저당 한 번만 지우는 일회성 정리. ⌘K 명령 팔레트 → "데모 데이터 초기화".
 
 ## 핵심 결정
 - **신고 방식: 회계법인 = Reporting Agent(Form 8655)**, 고객 EIN으로 941·940 신고, 텍사스 C-3는 TWC 대리인 권한, 세금은 고객 계좌 인출. 사용자가 등록한 PEO는 공동고용이 아닌 **납부·직접입금 대행 채널**로만 쓴다고 가정(사용자 확인 대기).
