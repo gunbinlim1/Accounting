@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ClientLayout, FirmLayout } from './components/Layout'
+import AuthConfirm from './pages/AuthConfirm'
 import CompanySettings from './pages/CompanySettings'
 import CompanySetup from './pages/CompanySetup'
 import Dashboard from './pages/Dashboard'
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="signup" element={<Register variant="client" />} />
             <Route path="setup" element={<CompanySetup mode="client" />} />
             <Route path="register" element={<Register />} />
+            <Route path="auth/confirm" element={<AuthConfirm />} />
             <Route path="firm/login" element={<Login variant="firm" />} />
             <Route path="firm/register" element={<Register variant="firm" />} />
             <Route path="me" element={<EmployeePortal />} />

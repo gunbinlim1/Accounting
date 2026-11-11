@@ -38,9 +38,14 @@ select vault.create_secret('<32자 이상 임의 문자열>', 'payroll_field_key
   - Site URL: Vercel 본 사이트 주소 (Vercel → `accounting` 프로젝트 → Domains의 Production 도메인, 예 `https://accounting-jae-jin-yang-cpa-pc.vercel.app`)
   - Redirect URLs: `https://*-jae-jin-yang-cpa-pc.vercel.app/**` (본 사이트와 브랜치 미리보기 모두 포함), 따로 연결한 도메인이 있으면 `https://<도메인>/**`도 추가 (로컬 개발 시 `http://localhost:5173/**`)
 - 비밀번호 최소 길이: 10 이상 권장.
+- **Email Templates** (회사 메일 보안 검사가 링크를 미리 열어 인증이 저절로 끝나는 것을 막기 위해, 링크는 포털의 확인 화면으로 보내고 버튼을 눌러야 인증되게 함):
+  - *Confirm signup*의 링크를 `<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next={{ .RedirectTo }}">이메일 인증하기 / Confirm your email</a>`로
+  - *Reset password*의 링크를 `<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next={{ .RedirectTo }}">비밀번호 재설정 / Reset password</a>`로
 - 실제 운영 전에는 **SMTP**(Authentication → Emails)를 회계법인 도메인 메일로 바꾸세요. 기본 메일은 발송량 제한이 있습니다.
 
 ## 4. 회계법인 직원 등록
+
+지금은 **Supabase 대시보드에 접근할 수 있는 사람**(Supabase 조직 Owner·Admin)이 SQL Editor에서 등록하거나, Claude에게 Supabase 커넥터로 요청합니다. 포털 안에는 아직 등록 화면이 없습니다. 등록된 직원: Gunbin Lim (2026-11-11).
 
 회계법인 직원은 먼저 포털의 "초대받은 계정 만들기"로 가입한 뒤, SQL Editor에서 한 번 등록합니다.
 
