@@ -15,7 +15,8 @@
 - 앱 데이터 흐름: `src/portal.tsx`(인증 상태·불러오기·저장 대기열) → 화면은 기존처럼 `updateCompany(id, fn)`으로 CompanyData를 고치고, `src/lib/db/plan.ts`가 바뀐 부분을 DB 쓰기 목록으로 만들어 `src/lib/db/api.ts`가 순서대로 실행(근무 입력은 0.6초 모아서). 실패하면 DB 기준으로 다시 불러옴. 행↔객체 변환은 `src/lib/db/mappers.ts`.
 - 전체 SSN·계좌번호는 화면에서 입력 → `set_employee_secrets` RPC로 암호화 저장 → 화면 상태에서 즉시 제거. 화면엔 뒤 4자리와 `onFile` 표시.
 - 로그인: 이메일+비밀번호 → 인증 앱(TOTP) 등록/코드 → `claim_invites`(이메일로 대표·직원 자동 연결) → 역할 판단. 가입: `/signup`(대표, 회사 정보는 이메일 인증·MFA 후 생성될 때까지 localStorage `payday-pending-company-v1`에 잠시 보관), `/register`(초대받은 직원·대표). 회계법인 직원은 SQL로 `firm_staff` 등록.
-- 이 작업 환경에서는 supabase.co 접속이 막혀 있어 실제 프로젝트로는 시험하지 못함. 로컬 PostgreSQL + `supabase/tests/supabase_shim.sql`로 마이그레이션·권한 시험(47개), 앱 쪽은 단위 시험과 빈/가짜 설정 빌드로 화면 확인.
+- **Supabase 프로젝트 생성됨**: `payday-portal` (ID `mvnixlpissdrioivjqjy`, us-east-1, 무료 플랜, 조직은 Supabase 커넥터로 확인). 마이그레이션 `payroll_schema` 적용, Vault 키 `payroll_field_key` 서버에서 생성. 권한 시험 47개를 실제 프로젝트에서 롤백 트랜잭션으로 실행해 통과. URL·publishable 키는 `.env.production`(공개용 값). Supabase 커넥터(MCP)로 SQL·마이그레이션 가능. 남은 것: 대시보드 인증 설정(Site URL·Redirect URL), 회계법인 직원 `firm_staff` 등록(가입 후 SQL), 이 브랜치 main 반영.
+- 이 작업 환경(셸)에서는 supabase.co 접속이 막혀 있어 브라우저 로그인은 직접 시험하지 못함. GitHub Actions 변수 설정도 프록시가 막음. 로컬 PostgreSQL + `supabase/tests/supabase_shim.sql`로 마이그레이션·권한 시험(47개), 앱 쪽은 단위 시험과 빈/가짜 설정 빌드로 화면 확인.
 - 2단계 남은 것: 실제 Supabase 프로젝트 연결·검증, 이메일 발송(SMTP), ACH·전자신고, 직원 초대 메일.
 
 ## 핵심 결정

@@ -28,10 +28,8 @@ jobs:
       - run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
-          # 저장소 Settings → Secrets and variables → Actions → Variables
-          # (anon 키는 공개용 키라 Variables에 둬도 됨. service_role 키는 넣지 말 것)
-          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          # Supabase 주소·공개 키는 .env.production (저장소에 포함)
+          # 로그인 화면의 회계법인 이름: 저장소 Variables의 FIRM_NAME (없으면 'Payday')
           VITE_FIRM_NAME: ${{ vars.FIRM_NAME }}
       # 새로고침/직접 접속 시 /employees 같은 경로도 앱이 열리도록 SPA fallback
       - run: cp dist/index.html dist/404.html

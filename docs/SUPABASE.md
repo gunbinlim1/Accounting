@@ -2,6 +2,18 @@
 
 포털은 Supabase(PostgreSQL + 인증 + 파일 저장소)를 데이터베이스로 씁니다. 아래 순서대로 한 번 설정하면 됩니다.
 
+## 현재 프로젝트 (2026-11-11 생성)
+
+| 항목 | 값 |
+|---|---|
+| 프로젝트 | `payday-portal` (ID `mvnixlpissdrioivjqjy`), 지역 us-east-1, 무료 플랜 |
+| URL | https://mvnixlpissdrioivjqjy.supabase.co |
+| 적용됨 | 마이그레이션 `payroll_schema`(아래 2번), Vault 암호화 키 `payroll_field_key`(서버에서 생성, 값은 어디에도 출력하지 않음) |
+| 앱 설정 | `.env.production`에 URL과 publishable 키 (공개용) |
+| 검증 | `supabase/tests/rls_test.sql`과 같은 권한 시험 47개를 실제 프로젝트에서 실행 → 모두 통과, 시험 데이터는 롤백 |
+
+남은 수동 설정: 아래 3번(인증 URL·설정)과 4번(회계법인 직원 등록). 실제 직원 정보를 넣기 전에 유료 플랜·백업 검토.
+
 ## 1. 프로젝트 만들기
 
 1. https://supabase.com 에서 새 프로젝트 생성 (지역: 미국 — 예 `us-east-1`).
@@ -42,11 +54,8 @@ select id, 'Jordan Lee', 'Payroll Manager' from auth.users where email = 'payrol
 Project Settings → API에서 **Project URL**과 **anon(public) 키**를 복사합니다.
 `service_role` 키는 어디에도 넣지 마세요 (모든 보안 규칙을 우회합니다).
 
-- GitHub Pages 배포: 저장소 Settings → Secrets and variables → Actions → **Variables**에
-  - `SUPABASE_URL` = Project URL
-  - `SUPABASE_ANON_KEY` = anon 키
-  - `FIRM_NAME` = 로그인 화면에 보일 회계법인 이름
-  를 추가하고 `main`에 푸시(또는 Deploy 워크플로 수동 실행)하면 됩니다.
+- GitHub Pages 배포: 저장소의 `.env.production`에 URL과 publishable 키가 들어 있어 따로 설정할 것이 없습니다.
+  로그인 화면의 회계법인 이름은 저장소 Settings → Secrets and variables → Actions → **Variables**에 `FIRM_NAME`으로 넣으면 됩니다(없으면 "Payday").
 - 로컬 개발: `.env.example`을 `.env.local`로 복사해 값을 넣고 `npm run dev`.
 
 ## 계정 흐름
