@@ -299,6 +299,10 @@ export interface Company {
   authorizations?: Authorizations
   /** 업로드한 회사 서류 (SS-4·CP 575, TWC 통지서) */
   documents?: CompanyDoc[]
+  /** 포털 생성 시각 */
+  createdAt?: string
+  /** 회계법인이 새 고객사를 확인한 시각 (없으면 확인 전) */
+  firmSeenAt?: string | null
 }
 
 export interface CompanyDoc {

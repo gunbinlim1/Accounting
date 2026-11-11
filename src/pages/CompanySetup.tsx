@@ -200,7 +200,7 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
         ) : (
           <Link to="/login" className="back-link"><ArrowLeft size={16} aria-hidden /> {t('로그인', 'Sign in')}</Link>
         )}
-        <h1>{mode === 'firm' ? t('새 고객사 추가', 'Add a client') : t('회사 급여 포털 만들기', 'Set up your payroll portal')}</h1>
+        <h1>{mode === 'firm' ? t('새 고객사 추가', 'Add a client') : t('계정 만들기 · 회사 급여 포털', 'Create an account · company payroll portal')}</h1>
         <p className="lead">
           {t('먼저 어떤 종류의 회사인지 알려 주세요. 업종에 맞춰 직무, 급여 형태(시급·연봉·팁)와 급여 입력 화면이 준비됩니다.',
             'Start with what kind of business this is. Roles, pay types (hourly, salary, tips) and the payroll screen are set up to match.')}
@@ -346,7 +346,7 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
             <p className="muted small">
               {mode === 'firm'
                 ? t('만든 뒤 대표에게 이 이메일로 "초대받은 계정 만들기"에서 가입하도록 알려 주세요. 가입하면 이 회사에 자동 연결되고, 회사 정보 화면에서 IRS 8655·TWC·계좌 인출 위임에 서명할 수 있어요. (초대 메일 자동 발송은 다음 단계)', 'After creating it, ask the owner to sign up with this email via “Create an invited account”. They’re linked automatically and can sign the 8655, TWC and bank-debit authorizations on the Company page. (Automatic invite emails come later.)')
-                : t('만들면 인증 메일이 가요. 이메일 인증 → 로그인 → 인증 앱 등록을 마치면 회사 포털이 만들어지고 홈으로 이동해요. 올린 SS-4·TWC 파일은 회사 정보 화면에서 보관용으로 다시 올려 주세요.', 'We’ll email you a confirmation link. After you confirm, sign in and set up your authenticator app, the portal is created and you land on the home page. Upload the SS-4/TWC files again from the Company page to keep them on file.')}
+                : t('만들면 인증 메일이 가요. 이메일 인증 → 로그인 → 인증 앱 등록을 마치면 회사 포털이 만들어지고 홈으로 이동하며, 회계법인에 새 고객사 알림이 갑니다. 올린 SS-4·TWC 파일은 회사 정보 화면에서 보관용으로 다시 올려 주세요.', 'We’ll email you a confirmation link. After you confirm, sign in and set up your authenticator app, the portal is created, you land on the home page, and your CPA firm is notified. Upload the SS-4/TWC files again from the Company page to keep them on file.')}
             </p>
           </>
         )}
@@ -359,8 +359,8 @@ export default function CompanySetup({ mode }: { mode: 'client' | 'firm' }) {
           {step < steps.length - 1 ? (
             <button type="button" className="btn primary" onClick={next}>{t('다음', 'Next')} <ArrowRight size={18} aria-hidden /></button>
           ) : (
-            <button type="button" className="btn primary" onClick={() => void create()} disabled={busy}>
-              <Check size={18} aria-hidden /> {mode === 'firm' ? t('고객사 만들기', 'Create client') : t('포털 만들기', 'Create portal')}
+            <button type="button" className="btn primary" onClick={() => void create()} disabled={busy} data-testid="create-portal">
+              <Check size={18} aria-hidden /> {mode === 'firm' ? t('고객사 만들기', 'Create client') : t('계정·포털 만들기', 'Create account & portal')}
             </button>
           )}
         </div>

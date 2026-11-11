@@ -1,4 +1,4 @@
-import { ArrowRight, Plus, Search } from 'lucide-react'
+import { ArrowRight, BellRing, Check, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { StatusBadge } from '../components/RunStatus'
@@ -6,6 +6,7 @@ import { companySchedule, standardHours } from '../config/payrollConfig'
 import { runChecks } from '../lib/checks'
 import { computeResults } from '../lib/compute'
 import { formatCurrency, formatDate } from '../lib/format'
+import { markCompanySeen } from '../lib/db/api'
 import { industryLabel } from '../lib/labels'
 import { effectiveEmployee } from '../lib/payroll'
 import { cashOutOf, timeLeft } from '../lib/runStatus'
@@ -19,7 +20,18 @@ type Filter = 'all' | 'action' | 'waiting' | 'done'
 
 export default function FirmQueue() {
   const { t, locale } = usePrefs()
-  const { companies, session } = usePortal()
+  const { companies, session, reload } = usePortal()
+  const [marking, setMarking] = useState<string | null>(null)
+  const newClients = companies.filter((c) => !c.company.firmSeenAt).sort((a, b) => (b.company.createdAt ?? '').localeCompare(a.company.createdAt ?? ''))
+  const markSeen = async (id: string) => {
+    setMarking(id)
+    try {
+      await markCompanySeen(id)
+      await reload()
+    } finally {
+      setMarking(null)
+    }
+  }
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [now] = useState(() => new Date())
@@ -65,8 +77,33 @@ export default function FirmQueue() {
           <h1>{t(`안녕하세요, ${session?.name}님`, `Hi, ${session?.name}`)}</h1>
           <p className="lead">{t('이번 회차 고객사 급여 제출 현황입니다. 제출된 곳부터 검토하세요.', 'Here’s where every client stands this pay period. Start with submitted runs.')}</p>
         </div>
-        <Link className="btn primary" to="/firm/new"><Plus size={18} aria-hidden /> {t('새 고객사', 'New client')}</Link>
       </header>
+
+      {newClients.length > 0 && (
+        <section className="card new-clients" aria-live="polite">
+          <div className="card-head">
+            <h2><BellRing size={18} aria-hidden /> {t(`새로 가입한 고객사 ${newClients.length}곳`, `${newClients.length} new client portal(s)`)}</h2>
+          </div>
+          <p className="muted small">{t('고객이 직접 계정을 만들고 회사 포털을 열었어요. 회사 정보·업종·위임 서명 상태를 확인한 뒤 "확인함"을 누르세요.', 'These clients created their own account and company portal. Review the company details, industry and authorizations, then mark them reviewed.')}</p>
+          <ul className="new-client-list">
+            {newClients.map(({ company: c, employees }) => (
+              <li key={c.id}>
+                <Link to={`/firm/c/${c.id}`} className="new-client-name">
+                  <strong>{c.dba}</strong>
+                  <small className="muted">
+                    {industryLabel(c.industry, t)} · {c.ownerName || c.ownerEmail} · {c.ownerEmail} · EIN {c.ein || '—'}
+                    {c.createdAt ? ` · ${formatDate(new Date(c.createdAt), locale, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+                    {` · ${t(`직원 ${employees.length}명`, `${employees.length} employees`)}`}
+                  </small>
+                </Link>
+                <button type="button" className="btn sm" disabled={marking === c.id} onClick={() => void markSeen(c.id)}>
+                  <Check size={15} aria-hidden /> {t('확인함', 'Mark reviewed')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="people-summary">
         <button className={filter === 'action' ? 'on' : ''} onClick={() => setFilter('action')}><strong>{counts.action}</strong><span>{t('검토할 제출', 'To review')}</span></button>

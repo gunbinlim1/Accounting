@@ -32,6 +32,8 @@ export interface CompanyRow {
   auth_twc_agent: 'signed' | 'pending'
   auth_bank_debit: 'signed' | 'pending'
   documents: CompanyDoc[] | null
+  created_at?: string
+  firm_seen_at?: string | null
 }
 
 export const companyFromRow = (r: CompanyRow): Company => ({
@@ -51,10 +53,12 @@ export const companyFromRow = (r: CompanyRow): Company => ({
   cutoffBusinessDays: r.cutoff_business_days,
   authorizations: { form8655: r.auth_form8655, twcAgent: r.auth_twc_agent, bankDebit: r.auth_bank_debit },
   documents: r.documents ?? [],
+  createdAt: r.created_at,
+  firmSeenAt: r.firm_seen_at ?? null,
 })
 
-/** 고객·회계법인이 바꿀 수 있는 회사 칸 */
-export const companyToRow = (c: Company): Omit<CompanyRow, 'id'> => ({
+/** 고객·회계법인이 바꿀 수 있는 회사 칸 (확인 표시·생성 시각은 제외) */
+export const companyToRow = (c: Company): Omit<CompanyRow, 'id' | 'created_at' | 'firm_seen_at'> => ({
   legal_name: c.legalName.trim(),
   dba: c.dba.trim(),
   industry: c.industry,

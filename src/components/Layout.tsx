@@ -192,7 +192,7 @@ export function FirmLayout() {
   const { session, companies } = usePortal()
   const navigate = useNavigate()
   const payDate = currentPayDate()
-  if (!session) return <Navigate to="/login" replace />
+  if (!session) return <Navigate to="/firm/login" replace />
   if (session.role !== 'firm') return <Navigate to={session.role === 'employee' ? '/me' : '/'} replace />
 
   const nav: NavItem[] = [

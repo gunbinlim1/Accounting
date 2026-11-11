@@ -14,8 +14,11 @@
 - DB 구조: `supabase/migrations/20261111000000_payroll_schema.sql` — companies, company_members, firm_staff, employees, employee_secrets(암호화), time_entries, pay_runs, pay_results, payments, tax_deposits, activity, audit_log, 비공개 버킷 `payroll-docs`. RLS: 회계법인 전체 / 고객 자기 회사 / 직원 본인. 모든 접근은 MFA(aal2) 필수. 고객 상태 변경 규칙·제출 잠금은 트리거.
 - 앱 데이터 흐름: `src/portal.tsx`(인증 상태·불러오기·저장 대기열) → 화면은 기존처럼 `updateCompany(id, fn)`으로 CompanyData를 고치고, `src/lib/db/plan.ts`가 바뀐 부분을 DB 쓰기 목록으로 만들어 `src/lib/db/api.ts`가 순서대로 실행(근무 입력은 0.6초 모아서). 실패하면 DB 기준으로 다시 불러옴. 행↔객체 변환은 `src/lib/db/mappers.ts`.
 - 전체 SSN·계좌번호는 화면에서 입력 → `set_employee_secrets` RPC로 암호화 저장 → 화면 상태에서 즉시 제거. 화면엔 뒤 4자리와 `onFile` 표시.
-- 로그인: 이메일+비밀번호 → 인증 앱(TOTP) 등록/코드 → `claim_invites`(이메일로 대표·직원 자동 연결) → 역할 판단. 가입: `/signup`(대표, 회사 정보는 이메일 인증·MFA 후 생성될 때까지 localStorage `payday-pending-company-v1`에 잠시 보관), `/register`(초대받은 직원·대표). 회계법인 직원은 SQL로 `firm_staff` 등록.
-- **Supabase 프로젝트 생성됨**: `payday-portal` (ID `mvnixlpissdrioivjqjy`, us-east-1, 무료 플랜, 조직은 Supabase 커넥터로 확인). 마이그레이션 `payroll_schema` 적용, Vault 키 `payroll_field_key` 서버에서 생성. 권한 시험 47개를 실제 프로젝트에서 롤백 트랜잭션으로 실행해 통과. URL·publishable 키는 `.env.production`(공개용 값). Supabase 커넥터(MCP)로 SQL·마이그레이션 가능. 남은 것: 대시보드 인증 설정(Site URL = Vercel 본 사이트, Redirect URLs `https://*-jae-jin-yang-cpa-pc.vercel.app/**`), 회계법인 직원 `firm_staff` 등록(가입 후 SQL).
+- **가입·로그인 구조 (사용자 결정 2026-11-11)**: 회계법인이 고객을 초대하는 방식은 쓰지 않음. 고객사(대표 또는 직원)가 고객 로그인 화면(`/login`)의 **"계정 만들기"**(`/signup`)로 계정과 회사 포털을 함께 만듦(회사 정보는 이메일 인증·MFA 후 생성될 때까지 localStorage `payday-pending-company-v1`에 잠시 보관) → `create_company`가 활동 기록 "고객 포털 생성"을 남기고 `companies.firm_seen_at`이 비어 있어 회계법인 대기열 상단에 **"새로 가입한 고객사"** 알림 → 회계법인이 "확인함". 고객은 `firm_seen_at`을 못 바꿈(트리거). 회계법인 "새 고객사" 화면(`/firm/new`)은 없앰(코드의 `CompanySetup mode="firm"`은 미사용).
+- **회계법인 전용 로그인 `/firm/login`** (회계법인 계정이 아니면 막음), 직원 계정 만들기 `/firm/register` → 가입·이메일 인증 후 SQL로 `firm_staff` 등록. 고객 로그인 화면의 작은 링크 `/register`는 급여명세서를 보는 고객사 직원용(대표가 직원 정보에 넣은 이메일 + 전자 수령 동의 → `claim_invites`로 연결).
+- 로그인 흐름: 이메일+비밀번호 → 인증 앱(TOTP) 등록/코드 → `claim_invites` → 역할 판단.
+- 회계법인 이메일 알림은 아직 없음(화면 알림만). 이메일까지 하려면 Supabase Database Webhook/Edge Function + 메일 서비스(예: Resend) 키 필요.
+- **Supabase 프로젝트 생성됨**: `payday-portal` (ID `mvnixlpissdrioivjqjy`, us-east-1, 무료 플랜, 조직은 Supabase 커넥터로 확인). 마이그레이션 `payroll_schema`·`client_signup_notice` 적용, Vault 키 `payroll_field_key` 서버에서 생성. 권한 시험 47개를 실제 프로젝트에서 롤백 트랜잭션으로 실행해 통과. URL·publishable 키는 `.env.production`(공개용 값). Supabase 커넥터(MCP)로 SQL·마이그레이션 가능. 남은 것: 대시보드 인증 설정(Site URL = Vercel 본 사이트, Redirect URLs `https://*-jae-jin-yang-cpa-pc.vercel.app/**`), 회계법인 직원 `firm_staff` 등록(가입 후 SQL).
 - 이 작업 환경(셸)에서는 supabase.co 접속이 막혀 있어 브라우저 로그인은 직접 시험하지 못함. GitHub Actions 변수 설정도 프록시가 막음. 로컬 PostgreSQL + `supabase/tests/supabase_shim.sql`로 마이그레이션·권한 시험(47개), 앱 쪽은 단위 시험과 빈/가짜 설정 빌드로 화면 확인.
 - 2단계 남은 것: 실제 Supabase 프로젝트 연결·검증, 이메일 발송(SMTP), ACH·전자신고, 직원 초대 메일.
 
@@ -42,7 +45,7 @@
 - 다국어: **모든 화면 한국어·영어 제공**(사용자 요청). `usePrefs().t(ko, en)` 인라인, 모든 화면에 언어 전환 버튼. 첫 방문 언어는 브라우저 언어(한국어면 ko, 그 외 en), 선택은 `pref-lang`에 저장. 새 문구는 반드시 `t()`로 두 언어를 함께 쓰고, 데이터 문구는 ko/en 쌍(활동 기록, 점검, 수정 요청 `noteEn`)으로 저장. 확인: 영어 모드로 전 화면을 돌며 한글이 섞였는지 Playwright로 검사. 다크 모드: CSS 토큰(`src/index.css`).
 - `src/config/industries.ts`: 업종 프로필·직무 템플릿. `src/portal.tsx`: Supabase 인증 상태·고객사 데이터 불러오기·저장 대기열. `src/lib/db/`: 행 변환·쓰기 계획·API. `src/store.tsx`: `CompanyProvider`/`useStore()` 고객사 단위 데이터와 동작(제출/취소/검토/수정요청/처리/납부/위임 서명).
 - `src/lib`: `payroll.ts`(계산 엔진·Fringe 분리), `federalWithholding.ts`, `taxes.ts`(예치 기한, 941, C-3, FUTA $500, W-2), `payments.ts`, `checks.ts`(자동 점검), `compliance.ts`(I-9), `docExtract.ts`(PDF 자동 입력), `ytd.ts`, `compute.ts`.
-- 페이지: 공개 `/signup`(회사 포털 만들기) · 고객 `/`(홈) `/run` `/employees` `/employees/new|:id` `/history` `/taxes` `/company` `/simulator` · 회계법인 `/firm` `/firm/settings` `/firm/new`(고객사 추가) `/firm/c/:id`(검토) `/taxes` `/history` · 직원 `/me` · `/login`.
+- 페이지: 공개 `/login` `/signup`(계정+회사 포털 만들기) `/register`(직원) `/firm/login` `/firm/register` · 고객 `/`(홈) `/run` `/employees` `/employees/new|:id` `/history` `/taxes` `/company` `/simulator` · 회계법인 `/firm`(대기열·새 고객사 알림) `/firm/settings` `/firm/c/:id`(검토) `/taxes` `/history` · 직원 `/me` · `/login`.
 
 ## 작업 방법
 - 확인: `npm run lint && npm test && npm run build` (테스트 50개). 배포 경로 확인은 `BASE_PATH=/Accounting/ npm run build` 후 `dist/index.html`을 `404.html`로 복사해 로컬 서버로 Playwright 점검.

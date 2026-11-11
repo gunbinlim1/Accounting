@@ -1290,3 +1290,16 @@ h1 .status-badge { margin-left: 0.5rem; font-size: 0.8rem; position: relative; t
 .save-status.failed { background: var(--crit-soft); color: var(--crit); border-color: transparent; }
 .doc-chip { display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 0.6rem; }
 @media (max-width: 760px) { .save-status { bottom: 76px; } }
+
+/* ───────── 회계법인 로그인 · 새 고객사 알림 ───────── */
+.firm-login .login-brand { background: linear-gradient(160deg, var(--accent-soft), transparent 60%); }
+.firm-login .brand-tag { margin-left: 0.4rem; }
+.signup-lead { margin: 0; text-align: center; }
+.signup-links .link-btn.small { font-size: 0.86rem; align-self: center; }
+.new-clients { border: 1px solid var(--accent); }
+.new-clients h2 { display: flex; align-items: center; gap: 0.45rem; margin: 0; }
+.new-client-list { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.new-client-list li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.6rem 0.75rem; border-radius: 10px; background: var(--surface-2); }
+.new-client-name { display: flex; flex-direction: column; gap: 0.15rem; text-decoration: none; color: var(--text); min-width: 0; }
+.new-client-name small { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .new-client-list li { flex-direction: column; align-items: stretch; } }

@@ -13,7 +13,7 @@ import {
 } from './mappers'
 
 export type Write =
-  | { kind: 'company'; id: string; row: Omit<CompanyRow, 'id'> }
+  | { kind: 'company'; id: string; row: Omit<CompanyRow, 'id' | 'created_at' | 'firm_seen_at'> }
   | { kind: 'employee'; row: Omit<EmployeeRow, 'bank_on_file' | 'ssn_on_file'>; isNew: boolean }
   | { kind: 'secrets'; employeeId: string; ssn: string | null; routing: string | null; account: string | null }
   | { kind: 'time'; row: TimeRow }

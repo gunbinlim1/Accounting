@@ -6,14 +6,15 @@ import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import SetupNeeded from './SetupNeeded'
 
-const redirectTo = () => `${window.location.origin}${import.meta.env.BASE_URL}login`
+const redirectTo = (firm: boolean) => `${window.location.origin}${import.meta.env.BASE_URL}${firm ? 'firm/login' : 'login'}`
 
 /**
  * 초대받은 계정 만들기: 회사에 등록된 이메일로 가입하면 로그인 후 자동 연결
  * - 직원: 대표가 직원 정보에 넣은 이메일 + 전자 수령 동의
  * - 대표: 회계법인이 고객사를 만들 때 넣은 대표 이메일
  */
-export default function Register() {
+export default function Register({ variant = 'employee' }: { variant?: 'employee' | 'firm' }) {
+  const firm = variant === 'firm'
   const { t, lang, toggleLang } = usePrefs()
   const { status } = usePortal()
   const [email, setEmail] = useState('')
@@ -24,7 +25,7 @@ export default function Register() {
   const [busy, setBusy] = useState(false)
 
   if (status === 'unconfigured') return <SetupNeeded />
-  if (status !== 'signed_out' && status !== 'loading') return <Navigate to="/login" replace />
+  if (status !== 'signed_out' && status !== 'loading') return <Navigate to={firm ? '/firm/login' : '/login'} replace />
 
   const submit = async (ev: FormEvent) => {
     ev.preventDefault()
@@ -33,7 +34,7 @@ export default function Register() {
     if (password !== confirm) return setError(t('비밀번호가 일치하지 않아요', 'Passwords don’t match'))
     setBusy(true)
     setError('')
-    const { error: e } = await supabase!.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: redirectTo() } })
+    const { error: e } = await supabase!.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: redirectTo(firm) } })
     setBusy(false)
     if (e) return setError(e.message)
     setSent(true)
@@ -46,7 +47,7 @@ export default function Register() {
         <button className="btn sm" onClick={toggleLang}><Languages size={16} aria-hidden /> {lang === 'ko' ? 'English' : '한국어'}</button>
       </div>
       <section className="card form-card">
-        <Link to="/login" className="back-link"><ArrowLeft size={16} aria-hidden /> {t('로그인', 'Sign in')}</Link>
+        <Link to={firm ? '/firm/login' : '/login'} className="back-link"><ArrowLeft size={16} aria-hidden /> {t('로그인', 'Sign in')}</Link>
         {sent ? (
           <>
             <h1><MailCheck size={22} aria-hidden /> {t('인증 메일을 보냈어요', 'Check your email')}</h1>
@@ -54,10 +55,11 @@ export default function Register() {
           </>
         ) : (
           <>
-            <h1><UserPlus size={22} aria-hidden /> {t('초대받은 계정 만들기', 'Create an invited account')}</h1>
+            <h1><UserPlus size={22} aria-hidden /> {firm ? t('회계법인 직원 계정 만들기', 'Create a firm staff account') : t('직원 계정 만들기', 'Create an employee account')}</h1>
             <p className="lead">
-              {t('회사에 등록된 이메일로 가입하세요. 직원은 대표님이 직원 정보에 넣은 이메일(전자 수령 동의 필요), 대표님은 회계법인이 고객사를 만들 때 넣은 이메일입니다. 로그인하면 자동으로 연결돼요.',
-                'Sign up with the email your company has on file: employees use the email their employer entered (with e-delivery consent); owners use the email the firm entered for the company. It links automatically when you sign in.')}
+              {firm
+                ? t('회사 이메일로 가입하세요. 이메일 인증을 마친 뒤 관리자가 회계법인 직원으로 등록하면 로그인할 수 있어요.', 'Sign up with your work email. After you confirm it, an administrator registers you as firm staff and you can sign in.')
+                : t('급여명세서와 W-2를 보려는 직원용이에요. 회사가 직원 정보에 넣은 이메일로 가입하세요(전자 수령 동의 필요). 로그인하면 본인 기록에 자동으로 연결돼요. 회사 포털을 처음 만드는 경우는 로그인 화면의 "계정 만들기"를 이용하세요.', 'For employees who want to see pay stubs and W-2s. Sign up with the email your employer has on file (with e-delivery consent); it links to your record when you sign in. To set up a company portal, use “Create an account” on the sign-in page.')}
             </p>
             <form className="login-form" onSubmit={(e) => void submit(e)}>
               <label className="field"><span>{t('이메일', 'Email')}</span><input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus /></label>

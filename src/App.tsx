@@ -28,6 +28,8 @@ export default function App() {
             <Route path="login" element={<Login />} />
             <Route path="signup" element={<CompanySetup mode="client" />} />
             <Route path="register" element={<Register />} />
+            <Route path="firm/login" element={<Login variant="firm" />} />
+            <Route path="firm/register" element={<Register variant="firm" />} />
             <Route path="me" element={<EmployeePortal />} />
             <Route element={<ClientLayout />}>
               <Route index element={<Dashboard />} />
@@ -44,7 +46,6 @@ export default function App() {
             <Route path="firm" element={<FirmLayout />}>
               <Route index element={<FirmQueue />} />
               <Route path="settings" element={<FirmSettings />} />
-              <Route path="new" element={<CompanySetup mode="firm" />} />
               <Route path="c/:companyId" element={<FirmReview />} />
               <Route path="c/:companyId/taxes" element={<FirmReview tab="taxes" />} />
               <Route path="c/:companyId/history" element={<FirmReview tab="history" />} />

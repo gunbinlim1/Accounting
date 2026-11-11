@@ -7,7 +7,7 @@ import { usePrefs } from '../prefs'
 import SetupNeeded from './SetupNeeded'
 
 const homeFor = (role?: string) => (role === 'firm' ? '/firm' : role === 'employee' ? '/me' : '/')
-const redirectTo = () => `${window.location.origin}${import.meta.env.BASE_URL}login`
+const redirectTo = (firm = false) => `${window.location.origin}${import.meta.env.BASE_URL}${firm ? 'firm/login' : 'login'}`
 
 /** 6자리 인증 코드 입력 */
 function CodeInput({ onComplete, busy }: { onComplete: (code: string) => void; busy: boolean }) {
@@ -109,8 +109,31 @@ function MfaStep() {
   )
 }
 
-function Shell({ children }: { children: ReactNode }) {
+type Variant = 'client' | 'firm'
+
+function Shell({ children, variant = 'client' }: { children: ReactNode; variant?: Variant }) {
   const { t, lang, toggleLang } = usePrefs()
+  if (variant === 'firm')
+    return (
+      <div className="login firm-login">
+        <section className="login-brand">
+          <div className="brand"><span className="brand-mark">P</span><span>Payday</span><span className="brand-tag">{t('회계법인', 'CPA firm')}</span></div>
+          <div className="login-pitch">
+            <h1>{t(`${firmName} 직원 로그인`, `${firmName} staff sign-in`)}</h1>
+            <p>{t('고객사 급여 제출을 검토·처리하고 세금 납부와 신고를 관리하는 회계법인 전용 화면입니다.', 'Review and process client payroll, and manage tax deposits and filings. For firm staff only.')}</p>
+            <ul>
+              <li><ShieldCheck size={18} aria-hidden /> {t('등록된 회계법인 직원 계정만 들어올 수 있어요', 'Only registered firm staff accounts can sign in')}</li>
+              <li><KeyRound size={18} aria-hidden /> {t('인증 앱 2단계 인증 필수', 'Authenticator app required')}</li>
+            </ul>
+          </div>
+          <p className="login-foot"><Link to="/login">{t('고객사 로그인은 여기', 'Client sign-in is here')}</Link></p>
+        </section>
+        <section className="login-panel">
+          <button className="lang-switch" onClick={toggleLang}><Languages size={16} aria-hidden /> {lang === 'ko' ? 'English' : '한국어'}</button>
+          <div className="login-box">{children}</div>
+        </section>
+      </div>
+    )
   return (
     <div className="login">
       <section className="login-brand">
@@ -135,7 +158,8 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 /** 로그인 → 2단계 인증 → 역할별 첫 화면 */
-export default function Login() {
+export default function Login({ variant = 'client' }: { variant?: Variant }) {
+  const firm = variant === 'firm'
   const { t } = usePrefs()
   const { status, session, refreshAuth, logout, email: myEmail, error: portalError } = usePortal()
   const [email, setEmail] = useState('')
@@ -146,16 +170,33 @@ export default function Login() {
   const [mode, setMode] = useState<'signin' | 'forgot'>('signin')
 
   if (status === 'unconfigured') return <SetupNeeded />
+  if (status === 'ready' && session && firm && session.role !== 'firm')
+    return (
+      <Shell variant="firm">
+        <h2>{t('회계법인 계정이 아니에요', 'This isn’t a firm account')}</h2>
+        <p className="muted">{t(`${myEmail} 계정은 회계법인 직원으로 등록되어 있지 않아요. 고객사 계정이면 고객사 로그인 화면을 이용하세요.`, `${myEmail} isn’t registered as firm staff. Client accounts use the client sign-in page.`)}</p>
+        <Link to="/" className="btn primary lg">{t('고객사 포털로 가기', 'Go to the client portal')}</Link>
+        <button className="link-btn" onClick={() => void logout()}><LogOut size={14} aria-hidden /> {t('로그아웃', 'Sign out')}</button>
+      </Shell>
+    )
   if (status === 'ready' && session) return <Navigate to={homeFor(session.role)} replace />
-  if (status === 'loading') return <Shell><p className="muted">{t('불러오는 중…', 'Loading…')}</p></Shell>
-  if (status === 'mfa') return <Shell><MfaStep /></Shell>
+  if (status === 'loading') return <Shell variant={variant}><p className="muted">{t('불러오는 중…', 'Loading…')}</p></Shell>
+  if (status === 'mfa') return <Shell variant={variant}><MfaStep /></Shell>
   if (status === 'error')
     return (
-      <Shell>
+      <Shell variant={variant}>
         <h2>{t('연결에 문제가 있어요', 'Something went wrong')}</h2>
         <p className="error-text">{portalError}</p>
         <button className="btn primary lg" onClick={() => void refreshAuth()}>{t('다시 시도', 'Try again')}</button>
         <button className="link-btn" onClick={() => void logout()}>{t('로그아웃', 'Sign out')}</button>
+      </Shell>
+    )
+  if (status === 'no_role' && firm)
+    return (
+      <Shell variant="firm">
+        <h2>{t('등록 대기 중', 'Waiting for registration')}</h2>
+        <p className="muted">{t(`${myEmail} 계정은 아직 회계법인 직원으로 등록되지 않았어요. 관리자에게 등록을 요청하세요.`, `${myEmail} isn’t registered as firm staff yet. Ask your administrator to add you.`)}</p>
+        <button className="link-btn" onClick={() => void logout()}><LogOut size={14} aria-hidden /> {t('로그아웃', 'Sign out')}</button>
       </Shell>
     )
   if (status === 'no_role')
@@ -163,16 +204,16 @@ export default function Login() {
       <Shell>
         <h2>{t('연결된 회사가 없어요', 'No company is linked yet')}</h2>
         <p className="muted">
-          {t(`${myEmail} 계정에 연결된 고객사나 직원 기록이 없습니다. 대표님이시면 회사 포털을 만드시고, 직원이시면 회사에 등록된 이메일로 가입했는지와 전자 수령 동의 여부를 대표님께 확인해 주세요.`,
-            `No client company or employee record is linked to ${myEmail}. Owners can set up a company portal; employees should check with their employer that this email is on file with electronic delivery consent.`)}
+          {t(`${myEmail} 계정에 연결된 회사 포털이 없어요. 회사 정보를 입력해 포털을 만들 수 있어요. 급여명세서를 보려는 직원이라면, 회사에 등록된 이메일인지와 전자 수령 동의 여부를 회사에 확인해 주세요.`,
+            `No company portal is linked to ${myEmail}. You can enter your company details to set one up. Employees looking for pay stubs should check that their employer has this email on file with e-delivery consent.`)}
         </p>
-        <Link to="/signup" className="btn primary lg"><Plus size={18} aria-hidden /> {t('회사 급여 포털 만들기', 'Set up a company portal')}</Link>
+        <Link to="/signup" className="btn primary lg"><Plus size={18} aria-hidden /> {t('회사 포털 만들기', 'Set up my company portal')}</Link>
         <button className="link-btn" onClick={() => void logout()}><LogOut size={14} aria-hidden /> {t('로그아웃', 'Sign out')}</button>
       </Shell>
     )
   if (status === 'recovery')
     return (
-      <Shell>
+      <Shell variant={variant}>
         <h2>{t('새 비밀번호', 'Set a new password')}</h2>
         <form
           className="login-form"
@@ -204,7 +245,7 @@ export default function Login() {
     setNotice('')
     setBusy(true)
     if (mode === 'forgot') {
-      const { error: e } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: redirectTo() })
+      const { error: e } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: redirectTo(firm) })
       setBusy(false)
       if (e) return setError(e.message)
       return setNotice(t('비밀번호 재설정 링크를 이메일로 보냈어요.', 'We emailed you a password reset link.'))
@@ -226,11 +267,11 @@ export default function Login() {
   }
 
   return (
-    <Shell>
+    <Shell variant={variant}>
       {mode === 'forgot' && (
         <button className="back-link" onClick={() => { setMode('signin'); setNotice(''); setError('') }}><ArrowLeft size={16} aria-hidden /> {t('로그인', 'Sign in')}</button>
       )}
-      <h2>{mode === 'forgot' ? t('비밀번호 재설정', 'Reset your password') : t('로그인', 'Sign in')}</h2>
+      <h2>{mode === 'forgot' ? t('비밀번호 재설정', 'Reset your password') : firm ? t('회계법인 로그인', 'Firm sign-in') : t('로그인', 'Sign in')}</h2>
       <p className="muted">
         {mode === 'forgot'
           ? t('가입한 이메일로 재설정 링크를 보내 드려요.', 'We’ll email you a reset link.')
@@ -255,8 +296,15 @@ export default function Login() {
       </form>
       {mode === 'signin' && <button className="link-btn" onClick={() => { setMode('forgot'); setError('') }}>{t('비밀번호를 잊으셨나요?', 'Forgot your password?')}</button>}
       <div className="signup-links">
-        <Link to="/signup" className="btn lg signup-link"><Plus size={18} aria-hidden /> {t('새 회사 급여 포털 만들기', 'Set up a new company portal')}</Link>
-        <Link to="/register" className="btn lg signup-link"><UserPlus size={18} aria-hidden /> {t('초대받은 계정 만들기 (직원·대표)', 'Create an invited account (employee or owner)')}</Link>
+        {firm ? (
+          <Link to="/firm/register" className="btn lg signup-link"><UserPlus size={18} aria-hidden /> {t('회계법인 직원 계정 만들기', 'Create a firm staff account')}</Link>
+        ) : (
+          <>
+            <p className="muted small signup-lead">{t('처음이신가요? 계정을 만들면서 회사 급여 포털을 함께 만들어요.', 'New here? Create your account and your company’s payroll portal together.')}</p>
+            <Link to="/signup" className="btn lg signup-link"><Plus size={18} aria-hidden /> {t('계정 만들기', 'Create an account')}</Link>
+            <Link to="/register" className="link-btn small">{t('직원이신가요? 급여명세서 보기 계정 만들기', 'Employee? Create an account to view your pay stubs')}</Link>
+          </>
+        )}
         <p className="muted small"><Smartphone size={13} aria-hidden /> {t('로그인에는 인증 앱(Google·Microsoft Authenticator 등)이 필요해요.', 'Sign-in requires an authenticator app (Google or Microsoft Authenticator, etc.).')}</p>
       </div>
     </Shell>

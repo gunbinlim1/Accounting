@@ -47,6 +47,10 @@ create temp table ids as select public.create_company('{"legal_name":"A Foods LL
 grant select on ids to authenticated;
 select test.ok((select count(*) = 1 from public.companies), 'A sees only its own company');
 select test.ok((select owner_email = 'owner-a@a.example' from public.companies), 'owner email comes from the login, not the form');
+select test.ok((select count(*) = 1 from public.activity where kind = 'settings' and ko like '고객 포털 생성%'), 'portal creation is logged for the firm');
+select test.ok((select firm_seen_at is null from public.companies), 'a new portal starts unseen by the firm');
+update public.companies set firm_seen_at = now();
+select test.ok((select firm_seen_at is null from public.companies), 'client cannot mark its own portal as seen');
 
 -- MFA 전(aal1)에는 아무것도 못 봄
 select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example', 'aal1');
@@ -129,6 +133,9 @@ reset role;
 select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
 set role authenticated;
 select test.ok((select count(*) = 2 from public.companies), 'firm sees every client');
+select test.ok((select count(*) = 2 from public.companies where firm_seen_at is null), 'firm sees both new clients as unseen');
+update public.companies set firm_seen_at = now() where legal_name = 'A Foods LLC';
+select test.ok((select firm_seen_at is not null from public.companies where legal_name = 'A Foods LLC'), 'firm marks a new client as seen');
 update public.pay_runs set status = 'changes_requested', note = 'OT 확인', note_en = 'Check OT';
 reset role;
 select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
