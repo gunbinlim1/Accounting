@@ -1271,3 +1271,6 @@ h1 .status-badge { margin-left: 0.5rem; font-size: 0.8rem; position: relative; t
 .warn-text.block, strong.block { display: block; margin-top: 0.3rem; }
 .doc-row .form-grid.four { grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr); }
 @media (max-width: 760px) { .doc-row .form-grid.four { grid-template-columns: 1fr; } }
+.firm-delete { margin-left: auto; white-space: nowrap; }
+.btn.danger-ghost { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 35%, var(--border)); background: transparent; }
+.btn.danger-ghost:hover { background: var(--crit-soft); }

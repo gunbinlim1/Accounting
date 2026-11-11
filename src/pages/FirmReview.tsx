@@ -1,6 +1,6 @@
-import { ArrowLeft, BellRing, CheckCheck, Download, Eye, MessageSquareWarning, Send } from 'lucide-react'
+import { ArrowLeft, BellRing, CheckCheck, Download, Eye, MessageSquareWarning, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { Link, NavLink, useParams } from 'react-router-dom'
+import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
 import PayrollReview from '../components/PayrollReview'
 import { ActivityList, StatusBadge, StatusTimeline } from '../components/RunStatus'
 import { maskSsn } from '../lib/compliance'
@@ -137,7 +137,8 @@ function Review() {
 export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes' | 'history' }) {
   const { t } = usePrefs()
   const { companyId } = useParams()
-  const { companies } = usePortal()
+  const { companies, removeCompany } = usePortal()
+  const navigate = useNavigate()
   const data = companies.find((c) => c.company.id === companyId)
   if (!data) return <div className="page"><div className="card empty">{t('고객사를 찾을 수 없습니다', 'Client not found')}</div></div>
   const base = `/firm/c/${companyId}`
@@ -148,6 +149,18 @@ export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes
         <NavLink to={base} end>{t('이번 회차 검토', 'This payroll')}</NavLink>
         <NavLink to={`${base}/taxes`}>{t('세금·신고', 'Taxes & filings')}</NavLink>
         <NavLink to={`${base}/history`}>{t('급여 내역', 'History')}</NavLink>
+        <button
+          type="button"
+          className="btn sm danger-ghost firm-delete"
+          onClick={() => {
+            const name = data.company.dba
+            if (!window.confirm(t(`${name} 고객사와 모든 급여 기록을 삭제할까요? 되돌릴 수 없습니다.`, `Delete ${name} and all of its payroll records? This can’t be undone.`))) return
+            removeCompany(data.company.id)
+            navigate('/firm')
+          }}
+        >
+          <Trash2 size={15} aria-hidden /> {t('고객사 삭제', 'Delete client')}
+        </button>
       </nav>
       {tab === 'review' ? <Review /> : tab === 'taxes' ? <Taxes /> : <History />}
     </CompanyProvider>
