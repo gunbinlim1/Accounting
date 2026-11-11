@@ -10,12 +10,12 @@ import { splitName } from './lib/names'
 import { ytdFor } from './lib/ytd'
 import type { Company, CompanyData, Employee, PayRun, Session, TaxDeposit, TimeEntry } from './types'
 
-const STORAGE_KEY = 'payday-portal-v4'
+const STORAGE_KEY = 'payday-portal-v5'
 /**
- * 옛 저장 데이터: v2(이름 한 칸·업종 없음), v3(계좌 뒤 4자리만·서류 사본 없음).
+ * 옛 저장 데이터: v2(이름 한 칸·업종 없음), v3(계좌 뒤 4자리만·서류 사본 없음), v4(업종별 데모 2곳 더 있음).
  * 데모 고객사는 새 시드로 바꾸고, 사용자가 직접 만든 고객사만 옮겨 옴.
  */
-const LEGACY_KEYS = ['payday-portal-v3', 'payday-portal-v2']
+const LEGACY_KEYS = ['payday-portal-v4', 'payday-portal-v3', 'payday-portal-v2']
 const SESSION_KEY = 'payday-portal-session-v1'
 
 export const currentPayDate = (from = new Date()) =>

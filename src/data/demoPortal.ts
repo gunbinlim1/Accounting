@@ -53,10 +53,8 @@ export const recurringFringes: Record<string, Omit<FringeEntry, 'id'>[]> = {
   'SG-001': [{ itemId: 'meals', amount: 40 }],
   'SG-004': [{ itemId: 'meals', amount: 60 }],
   'SG-006': [{ itemId: 'health', amount: 450 }, { itemId: 'gtl', amount: 8 }],
-  'ES-005': [{ itemId: 'health', amount: 380 }, { itemId: 'vehicle', amount: 120 }],
-  'PB-007': [{ itemId: 'meals', amount: 50 }],
-  'LS-009': [{ itemId: 'health', amount: 520 }, { itemId: 'gtl', amount: 12 }],
-  'LS-010': [{ itemId: 'health', amount: 450 }],
+  'LS-001': [{ itemId: 'health', amount: 520 }, { itemId: 'gtl', amount: 12 }],
+  'LS-002': [{ itemId: 'health', amount: 450 }],
 }
 
 /** 데모: Seoul Garden 기존 샘플 직원의 지급 방식·이메일 */
@@ -100,17 +98,6 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
     sutaRate: 0.0275, authorizations: signed, ownerName: 'Grace Kim', ownerEmail: 'grace@seoulgarden.example', phone: '(713) 555-0110',
     address: { street: '9889 Bellaire Blvd', city: 'Houston', state: 'TX', zip: '77036' },
   })
-  const taqueria = baseCompany({
-    id: 'el-sol', legalName: 'El Sol Foods Inc.', dba: 'Taqueria El Sol', ein: '74-7654321', twcAccount: '99-654321-0',
-    sutaRate: 0.019, authorizations: { ...signed, twcAgent: 'pending' }, ownerName: 'Luis Hernández', ownerEmail: 'luis@elsol.example', phone: '(713) 555-0188',
-    address: { street: '6115 Hillcroft Ave', city: 'Houston', state: 'TX', zip: '77081' },
-  })
-  const pho = baseCompany({
-    id: 'pho-bellaire', legalName: 'Bellaire Noodle House LLC', dba: 'Pho Bellaire', ein: '88-2468135', twcAccount: '99-246813-5',
-    authorizations: { form8655: 'pending', twcAgent: 'pending', bankDebit: 'signed' }, ownerName: 'Linh Tran', ownerEmail: 'linh@phobellaire.example', phone: '(713) 555-0166',
-    address: { street: '11210 Bellaire Blvd', city: 'Houston', state: 'TX', zip: '77072' },
-  })
-
   const fab = baseCompany({
     id: 'lone-star-fab', legalName: 'Lone Star Microfab Inc.', dba: 'Lone Star Microfab', ein: '87-3141592', twcAccount: '99-314159-2',
     industry: 'manufacturing', tipsEnabled: false, sutaRate: 0.012, authorizations: signed,
@@ -156,51 +143,6 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
       ],
     },
     {
-      company: taqueria,
-      employees: [
-        staff('ES', 'Rosa Martinez', 'server', '2023-05-01', { pretaxDeferralRate: 0.02 }),
-        staff('ES', 'Diego Flores', 'cook', '2022-08-15', { rate: 17.5 }),
-        staff('ES', 'Ana Ruiz', 'server', '2024-02-12', { payMethod: 'client_check', bank: undefined, eConsent: false }),
-        staff('ES', 'Miguel Torres', 'dishwasher', '2025-03-03', { rate: 12.5, payMethod: 'firm_check', bank: undefined }),
-        staff('ES', 'Luis Hernández Jr.', 'manager', '2021-01-04', { rate: 48_000, w4: { ...defaultW4, filingStatus: 'married', dependentsAmount: 4_400, signedDate: '2024-01-08' } }),
-      ],
-      status: 'submitted',
-      activity: [
-        ev('es1', 5, 'client', 'Luis Hernández', 'submit', '11월 회차 급여 제출', 'Submitted the November payroll'),
-      ],
-    },
-    {
-      company: pho,
-      employees: [
-        staff('PB', 'Kevin Nguyen', 'server', '2024-09-09'),
-        staff('PB', 'Mai Pham', 'cook', '2023-11-20', { rate: 16 }),
-        staff('PB', 'Tony Vo', 'busser', '2025-07-14', { w4: null, payMethod: 'client_check', bank: undefined }),
-      ],
-      status: 'changes_requested',
-      note: 'Kevin Nguyen님의 카드 팁이 $0으로 들어왔어요. POS 리포트 기준 카드 팁 금액을 넣어 다시 제출해 주세요.',
-      noteEn: 'Kevin Nguyen’s card tips came in as $0. Please enter the card tips from the POS report and resubmit.',
-      activity: [
-        ev('pb2', 3, 'firm', firmAccount.name, 'changes', '수정 요청: Kevin Nguyen 카드 팁 확인', 'Requested changes: check Kevin Nguyen card tips'),
-        ev('pb1', 20, 'client', 'Linh Tran', 'submit', '11월 회차 급여 제출', 'Submitted the November payroll'),
-      ],
-    },
-    {
-      company: fab,
-      employees: [
-        staff('LS', 'Priya R. Shah', 'engineer', '2023-04-03', { rate: 96_000, pretaxDeferralRate: 0.06, w4: { ...defaultW4, filingStatus: 'married', signedDate: '2023-04-03' } }),
-        staff('LS', 'James Walker', 'supervisor', '2022-02-14', { pretaxDeferralRate: 0.04 }),
-        staff('LS', 'Hector Garza', 'machine_operator', '2024-06-10', { rate: 20.5 }),
-        staff('LS', 'Thu Le', 'qc_inspector', '2025-01-13'),
-        staff('LS', 'Marcus Johnson', 'maintenance', '2021-09-20', { rate: 28 }),
-        staff('LS', 'Kayla Brooks', 'assembler', '2025-08-04', { payMethod: 'firm_check', bank: undefined }),
-        staff('LS', 'Ray Delgado', 'forklift', '2024-10-21', { jobTitle: 'Shipping & receiving' }),
-      ],
-      status: 'draft',
-      activity: [
-        ev('ls1', 50, 'client', 'Daniel Cho', 'settings', '업종 설정: 생산·제조업 (팁 기능 없음)', 'Industry set: Manufacturing (no tips)'),
-      ],
-    },
-    {
       company: lotus,
       employees: [
         staff('LN', 'Tina Ho', 'stylist', '2023-03-06', { rate: 13 }),
@@ -224,9 +166,29 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
         staff('GM', 'Danny Park', 'delivery_driver', '2024-01-22', { payMethod: 'firm_check', bank: undefined }),
         staff('GM', 'Grace Liu', 'store_manager', '2021-06-01', { pretaxDeferralRate: 0.05 }),
       ],
+      status: 'changes_requested',
+      note: 'Leo Martinez님의 OT 시간이 타임카드 기록(6시간)과 다릅니다. 확인 후 다시 제출해 주세요.',
+      noteEn: 'Leo Martinez’s OT hours don’t match the timecard (6 hours). Please check and resubmit.',
+      activity: [
+        ev('gm3', 4, 'firm', firmAccount.name, 'changes', '수정 요청: Leo Martinez OT 시간 확인', 'Requested changes: check Leo Martinez OT hours'),
+        ev('gm2', 26, 'client', 'Kevin Lee', 'submit', '11월 회차 급여 제출', 'Submitted the November payroll'),
+        ev('gm1', 72, 'client', 'Kevin Lee', 'settings', '업종 설정: 도소매업 (팁 기능 없음)', 'Industry set: Retail & wholesale (no tips)'),
+      ],
+    },
+    {
+      company: fab,
+      employees: [
+        staff('LS', 'Priya R. Shah', 'engineer', '2023-04-03', { rate: 96_000, pretaxDeferralRate: 0.06, w4: { ...defaultW4, filingStatus: 'married', signedDate: '2023-04-03' } }),
+        staff('LS', 'James Walker', 'supervisor', '2022-02-14', { pretaxDeferralRate: 0.04 }),
+        staff('LS', 'Hector Garza', 'machine_operator', '2024-06-10', { rate: 20.5 }),
+        staff('LS', 'Thu Le', 'qc_inspector', '2025-01-13'),
+        staff('LS', 'Marcus Johnson', 'maintenance', '2021-09-20', { rate: 28 }),
+        staff('LS', 'Kayla Brooks', 'assembler', '2025-08-04', { payMethod: 'firm_check', bank: undefined }),
+        staff('LS', 'Ray Delgado', 'forklift', '2024-10-21', { jobTitle: 'Shipping & receiving' }),
+      ],
       status: 'draft',
       activity: [
-        ev('gm1', 72, 'client', 'Kevin Lee', 'settings', '업종 설정: 도소매업 (팁 기능 없음)', 'Industry set: Retail & wholesale (no tips)'),
+        ev('ls1', 50, 'client', 'Daniel Cho', 'settings', '업종 설정: 생산·제조업 (팁 기능 없음)', 'Industry set: Manufacturing (no tips)'),
       ],
     },
   ]
@@ -237,7 +199,6 @@ export const demoTimeTweaks: Record<string, { regular?: number; overtime?: numbe
   'SG-001': { regular: 72, overtime: 6, cashTips: 380, cardTips: 1040 },
   'SG-004': { regular: 80, overtime: 9 },
   'SG-005': { regular: 30, cashTips: 15, cardTips: 40 },
-  'PB-006': { cardTips: 0, cashTips: 140 },
 }
 
 export const demoDaysFrom = daysFrom

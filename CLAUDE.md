@@ -10,21 +10,19 @@
 ## 현재 상태 (1단계 데모 완료)
 - 배포: https://gunbinlim1.github.io/Accounting/ — `main`에 푸시하면 GitHub Actions(`.github/workflows/deploy.yml`)가 Pages로 자동 배포. CI(`ci.yml`)는 lint·test·build.
 - 저장소: https://github.com/gunbinlim1/Accounting (공개). 지금까지 `main`에 직접 커밋·푸시해 왔음(사용자 승인 흐름).
-- 데이터는 전부 **브라우저 localStorage**(가상 데이터). 저장 키: `payday-portal-v4`(회사 데이터), `payday-portal-session-v1`(세션). 데이터 모양을 바꾸면 키 버전을 올릴 것. 옛 키(v2·v3)가 있으면 데모 고객사는 새 시드로 바꾸고 사용자가 만든 고객사만 `migrateCompany`로 옮김.
+- 데이터는 전부 **브라우저 localStorage**(가상 데이터). 저장 키: `payday-portal-v5`(회사 데이터), `payday-portal-session-v1`(세션). 데이터 모양을 바꾸면 키 버전을 올릴 것. 옛 키(v2·v3)가 있으면 데모 고객사는 새 시드로 바꾸고 사용자가 만든 고객사만 `migrateCompany`로 옮김.
 - 2단계(서버·MFA·암호화·비공개 호스팅·AI 문서 인식·이메일·ACH·전자신고)는 아직. 실제 고객 데이터는 보안 점검 전 받지 않음.
 
 ## 데모 계정 (로그인 화면 하단 버튼, 인증 코드는 아무 6자리 / "데모 코드 자동 입력")
 | 계정 | 역할 | 상태 |
 |---|---|---|
-| Seoul Garden BBQ · Grace Kim (grace@seoulgarden.example) | 고객 | 작성 중 |
-| Taqueria El Sol · Luis Hernández (luis@elsol.example) | 고객 | 제출됨, TWC 위임 미서명 |
-| Pho Bellaire · Linh Tran (linh@phobellaire.example) | 고객 | 수정 요청, 8655 미서명 |
+| Seoul Garden BBQ · Grace Kim (grace@seoulgarden.example) | 고객 (레스토랑, 팁 사용) | 작성 중 |
 | Maria Lopez (maria.lopez@mail.example) | 직원 포털 | `/me` |
 | Lone Star Microfab · Daniel Cho (daniel@lonestarfab.example) | 고객 (생산·제조업, 팁 없음) | 작성 중 |
 | Lotus Nail & Spa · Helen Vu (helen@lotusspa.example) | 고객 (서비스업, 팁 사용) | 제출됨 |
-| Gulfway Asian Market · Kevin Lee (kevin@gulfwaymarket.example) | 고객 (도소매업, 팁 없음) | 작성 중, 계좌 인출 미서명 |
+| Gulfway Asian Market · Kevin Lee (kevin@gulfwaymarket.example) | 고객 (도소매업, 팁 없음) | 수정 요청, 계좌 인출 미서명 |
 | Demo CPA · Jordan Lee (payroll@democpa.example) | 회계법인 | `/firm` 대기열 |
-⌘K 명령 팔레트 → "데모 데이터 초기화".
+고객 데모는 업종별 1곳씩만 둠(사용자 요청). ⌘K 명령 팔레트 → "데모 데이터 초기화".
 
 ## 핵심 결정
 - **신고 방식: 회계법인 = Reporting Agent(Form 8655)**, 고객 EIN으로 941·940 신고, 텍사스 C-3는 TWC 대리인 권한, 세금은 고객 계좌 인출. 사용자가 등록한 PEO는 공동고용이 아닌 **납부·직접입금 대행 채널**로만 쓴다고 가정(사용자 확인 대기).
