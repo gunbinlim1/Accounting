@@ -330,8 +330,10 @@ export interface CurrentRun {
   status: RunStatus
   submittedAt?: string
   submittedBy?: string
-  /** 회계법인이 남긴 수정 요청 메모 */
+  /** 회계법인이 남긴 수정 요청 메모 (작성한 언어 그대로) */
   note?: string
+  /** 수정 요청 메모의 영어 문구 (있으면 영어 화면에서 사용) */
+  noteEn?: string
   snapshot?: RunSnapshot
 }
 

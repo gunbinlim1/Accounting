@@ -53,7 +53,7 @@ export default function Dashboard() {
           <MessageSquareWarning size={20} aria-hidden />
           <div>
             <strong>{t('회계법인 수정 요청', 'Changes requested by your CPA')}</strong>
-            <p>{current.note}</p>
+            <p>{t(current.note, current.noteEn ?? current.note)}</p>
           </div>
           <ArrowRight size={18} aria-hidden />
         </Link>

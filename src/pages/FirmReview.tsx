@@ -74,7 +74,7 @@ function Review() {
         return (
           <>
             <p>{t('고객이 수정 후 다시 제출하기를 기다리는 중이에요.', 'Waiting for the client to fix and resubmit.')}</p>
-            {current.note && <blockquote>{current.note}</blockquote>}
+            {current.note && <blockquote>{t(current.note, current.noteEn ?? current.note)}</blockquote>}
           </>
         )
       case 'processed':
@@ -139,7 +139,7 @@ export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes
   const { companyId } = useParams()
   const { companies } = usePortal()
   const data = companies.find((c) => c.company.id === companyId)
-  if (!data) return <div className="page"><div className="card empty">Not found</div></div>
+  if (!data) return <div className="page"><div className="card empty">{t('고객사를 찾을 수 없습니다', 'Client not found')}</div></div>
   const base = `/firm/c/${companyId}`
   return (
     <CompanyProvider key={companyId} companyId={companyId!}>

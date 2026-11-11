@@ -93,6 +93,7 @@ function initialCompanies(): CompanyData[] {
         payDate,
         status: seed.status,
         note: seed.note,
+        noteEn: seed.noteEn,
         snapshot,
         submittedAt: submitEvent?.at,
         submittedBy: submitEvent?.actorName,

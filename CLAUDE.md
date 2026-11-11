@@ -46,7 +46,7 @@
 
 ## 구조
 - 스택: React 19 + TypeScript + Vite + react-router 7, lucide-react, vitest, oxlint. `read-excel-file`(엑셀 가져오기), `pdf-lib`(W-4·I-9 작성 가능 PDF 칸 읽기 + 데모 샘플 PDF 생성).
-- 다국어: `usePrefs().t(ko, en)` 인라인. 다크 모드: CSS 토큰(`src/index.css`).
+- 다국어: **모든 화면 한국어·영어 제공**(사용자 요청). `usePrefs().t(ko, en)` 인라인, 모든 화면에 언어 전환 버튼. 첫 방문 언어는 브라우저 언어(한국어면 ko, 그 외 en), 선택은 `pref-lang`에 저장. 새 문구는 반드시 `t()`로 두 언어를 함께 쓰고, 데이터 문구는 ko/en 쌍(활동 기록, 점검, 수정 요청 `noteEn`)으로 저장. 확인: 영어 모드로 전 화면을 돌며 한글이 섞였는지 Playwright로 검사. 다크 모드: CSS 토큰(`src/index.css`).
 - `src/config/industries.ts`: 업종 프로필·직무 템플릿. `src/portal.tsx`: 세션·고객사 목록·데모 시드(올해 전체 급여 기록·납부 기록 생성). `src/store.tsx`: `CompanyProvider`/`useStore()` 고객사 단위 데이터와 동작(제출/취소/검토/수정요청/처리/납부/위임 서명).
 - `src/lib`: `payroll.ts`(계산 엔진·Fringe 분리), `federalWithholding.ts`, `taxes.ts`(예치 기한, 941, C-3, FUTA $500, W-2), `payments.ts`, `checks.ts`(자동 점검), `compliance.ts`(I-9), `docExtract.ts`(PDF 자동 입력), `ytd.ts`, `compute.ts`.
 - 페이지: 공개 `/signup`(회사 포털 만들기) · 고객 `/`(홈) `/run` `/employees` `/employees/new|:id` `/history` `/taxes` `/company` `/simulator` · 회계법인 `/firm` `/firm/settings` `/firm/new`(고객사 추가) `/firm/c/:id`(검토) `/taxes` `/history` · 직원 `/me` · `/login`.

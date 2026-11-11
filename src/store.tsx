@@ -179,7 +179,7 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
       setStatus('in_review', event('firm', actorName, 'review', '검토 시작', 'Started review')),
 
     requestChanges: (actorName, note) =>
-      setStatus('changes_requested', event('firm', actorName, 'changes', `수정 요청: ${note}`, `Requested changes: ${note}`), { note, snapshot: undefined }),
+      setStatus('changes_requested', event('firm', actorName, 'changes', `수정 요청: ${note}`, `Requested changes: ${note}`), { note, noteEn: undefined, snapshot: undefined }),
 
     markProcessed: (actorName) => {
       const snap = data.current.snapshot ?? { time: data.time, results: derived.results }

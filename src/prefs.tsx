@@ -34,7 +34,13 @@ const systemTheme = (): Theme =>
   typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 
 export function PrefsProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState<Lang>(() => (read('pref-lang') === 'en' ? 'en' : 'ko'))
+  const [lang, setLang] = useState<Lang>(() => {
+    const saved = read('pref-lang')
+    if (saved === 'ko' || saved === 'en') return saved
+    // 처음 방문: 브라우저 언어가 한국어면 한국어, 그 밖에는 영어
+    const nav = typeof navigator !== 'undefined' ? navigator.languages?.[0] ?? navigator.language : 'ko'
+    return /^ko\b/i.test(nav ?? '') ? 'ko' : 'en'
+  })
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = read('pref-theme')
     return saved === 'light' || saved === 'dark' ? saved : systemTheme()

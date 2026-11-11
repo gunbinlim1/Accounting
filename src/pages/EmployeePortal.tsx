@@ -32,7 +32,7 @@ function Portal({ employeeId }: { employeeId: string }) {
       <header className="emp-top">
         <div className="brand"><span className="brand-mark">P</span><span>Payday</span><span className="brand-tag">{t('직원 포털', 'Employee portal')}</span></div>
         <div className="row gap">
-          <button className="round-btn" onClick={toggleLang} aria-label="language"><Languages size={18} /></button>
+          <button className="round-btn" onClick={toggleLang} aria-label={t('언어 전환', 'Switch language')}><Languages size={18} /></button>
           <button className="btn sm" onClick={logout}><LogOut size={15} aria-hidden /> {lang === 'ko' ? '로그아웃' : 'Sign out'}</button>
         </div>
       </header>

@@ -86,6 +86,7 @@ export interface DemoCompanySeed {
   /** 이번 회차 상태 */
   status: 'draft' | 'submitted' | 'changes_requested'
   note?: string
+  noteEn?: string
   activity: ActivityEvent[]
 }
 
@@ -177,6 +178,7 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
       ],
       status: 'changes_requested',
       note: 'Kevin Nguyen님의 카드 팁이 $0으로 들어왔어요. POS 리포트 기준 카드 팁 금액을 넣어 다시 제출해 주세요.',
+      noteEn: 'Kevin Nguyen’s card tips came in as $0. Please enter the card tips from the POS report and resubmit.',
       activity: [
         ev('pb2', 3, 'firm', firmAccount.name, 'changes', '수정 요청: Kevin Nguyen 카드 팁 확인', 'Requested changes: check Kevin Nguyen card tips'),
         ev('pb1', 20, 'client', 'Linh Tran', 'submit', '11월 회차 급여 제출', 'Submitted the November payroll'),
