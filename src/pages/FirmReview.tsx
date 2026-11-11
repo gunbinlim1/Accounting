@@ -6,7 +6,7 @@ import { ActivityList, StatusBadge, StatusTimeline } from '../components/RunStat
 import { maskSsn } from '../lib/compliance'
 import { downloadCsv, payrollCsv } from '../lib/csv'
 import { formatDate, formatPercent } from '../lib/format'
-import { roleLabel } from '../lib/labels'
+import { jobLabel } from '../lib/labels'
 import { cashOutOf } from '../lib/runStatus'
 import { parseISODate } from '../lib/schedule'
 import { useChecks } from '../lib/useChecks'
@@ -29,7 +29,7 @@ function Review() {
   const pay = parseISODate(payDate)
 
   const exportCsv = () =>
-    downloadCsv(`${company.dba.replace(/\W+/g, '-')}-${payDate}.csv`, payrollCsv(company, payDate, view, (r) => roleLabel(r, t), maskSsn))
+    downloadCsv(`${company.dba.replace(/\W+/g, '-')}-${payDate}.csv`, payrollCsv(company, payDate, view, (e) => jobLabel(e, t), maskSsn))
 
   const panel = (() => {
     switch (status) {

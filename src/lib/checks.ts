@@ -2,6 +2,7 @@ import { payrollConfig as cfg } from '../config/payrollConfig'
 import type { Employee, PayrollResult, TimeEntry } from '../types'
 import { i9State } from './compliance'
 import { formatCurrency } from './format'
+import { fullName } from './names'
 
 export type Severity = 'critical' | 'warning' | 'info'
 
@@ -38,7 +39,7 @@ export function runChecks({ employees, time, results, previous, ytdGross, standa
     const r = results.find((x) => x.employeeId === e.id)
     if (!r) continue
     const h = time[e.id]
-    const n = e.name
+    const n = fullName(e)
 
     // ── 임금 기준
     if (e.payType === 'tipped' && e.rate < cfg.tippedCashWage) {

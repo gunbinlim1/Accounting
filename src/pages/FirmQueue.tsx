@@ -1,4 +1,4 @@
-import { ArrowRight, Search } from 'lucide-react'
+import { ArrowRight, Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { StatusBadge } from '../components/RunStatus'
@@ -6,6 +6,7 @@ import { companySchedule, standardHours } from '../config/payrollConfig'
 import { runChecks } from '../lib/checks'
 import { computeResults } from '../lib/compute'
 import { formatCurrency, formatDate } from '../lib/format'
+import { industryLabel } from '../lib/labels'
 import { effectiveEmployee } from '../lib/payroll'
 import { cashOutOf, timeLeft } from '../lib/runStatus'
 import { parseISODate, subtractBusinessDays } from '../lib/schedule'
@@ -58,10 +59,13 @@ export default function FirmQueue() {
 
   return (
     <div className="page">
-      <header className="page-head">
-        <p className="eyebrow">{t('지급일', 'Pay date')} {formatDate(parseISODate(payDate), locale)}</p>
-        <h1>{t(`안녕하세요, ${session?.name}님`, `Hi, ${session?.name}`)}</h1>
-        <p className="lead">{t('이번 회차 고객사 급여 제출 현황입니다. 제출된 곳부터 검토하세요.', 'Here’s where every client stands this pay period. Start with submitted runs.')}</p>
+      <header className="page-head row between wrap">
+        <div>
+          <p className="eyebrow">{t('지급일', 'Pay date')} {formatDate(parseISODate(payDate), locale)}</p>
+          <h1>{t(`안녕하세요, ${session?.name}님`, `Hi, ${session?.name}`)}</h1>
+          <p className="lead">{t('이번 회차 고객사 급여 제출 현황입니다. 제출된 곳부터 검토하세요.', 'Here’s where every client stands this pay period. Start with submitted runs.')}</p>
+        </div>
+        <Link className="btn primary" to="/firm/new"><Plus size={18} aria-hidden /> {t('새 고객사', 'New client')}</Link>
       </header>
 
       <section className="people-summary">
@@ -98,7 +102,7 @@ export default function FirmQueue() {
                     <span className="identity-logo sm">{c.company.dba.split(' ').map((w) => w[0]).slice(0, 2).join('')}</span>
                     <span className="plist-name">
                       <strong>{c.company.dba}</strong>
-                      <small>{c.company.ownerName} · {t(`직원 ${view.results.length}명`, `${view.results.length} people`)} · EIN {c.company.ein}</small>
+                      <small>{industryLabel(c.company.industry, t)} · {c.company.ownerName} · {t(`직원 ${view.results.length}명`, `${view.results.length} people`)} · EIN {c.company.ein}</small>
                     </span>
                   </span>
                   <span className="q-status">

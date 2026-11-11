@@ -4,6 +4,7 @@ import { downloadCsv } from '../lib/csv'
 import { formatCurrency } from '../lib/format'
 import { usePrefs } from '../prefs'
 import type { Employee, TimeEntry } from '../types'
+import { fullName, sortName } from '../lib/names'
 
 type Field = 'employee' | 'regular' | 'overtime' | 'cashTips' | 'cardTips' | 'rate'
 type Mapping = Record<Field, number>
@@ -106,7 +107,11 @@ export default function ImportDialog({ companyId, employees, onClose, onApply }:
   const preview = useMemo(() => {
     if (!rows || !map || map.employee < 0) return []
     const byKey = new Map<string, Employee>()
-    for (const e of employees) { byKey.set(e.id.toLowerCase(), e); byKey.set(norm(e.name), e) }
+    for (const e of employees) {
+      byKey.set(e.id.toLowerCase(), e)
+      // "Maria L. Lopez", "Maria Lopez", "Lopez, Maria" 모두 인식
+      for (const n of [fullName(e), `${e.firstName} ${e.lastName}`, sortName(e), `${e.lastName}, ${e.firstName}`]) byKey.set(norm(n), e)
+    }
     return rows.slice(1).map((r) => {
       const key = String(r[map.employee] ?? '').trim()
       const e = byKey.get(key.toLowerCase()) ?? byKey.get(norm(key))
@@ -125,7 +130,7 @@ export default function ImportDialog({ companyId, employees, onClose, onApply }:
 
   const sample = () => {
     const lines = [['Employee', 'Regular Hours', 'OT Hours', 'Cash Tips', 'Card Tips']]
-    for (const e of employees.filter((x) => x.active && x.payType !== 'salary')) lines.push([e.name, '72', '4', e.payType === 'tipped' ? '320' : '0', e.payType === 'tipped' ? '910' : '0'])
+    for (const e of employees.filter((x) => x.active && x.payType !== 'salary')) lines.push([fullName(e), '72', '4', e.payType === 'tipped' ? '320' : '0', e.payType === 'tipped' ? '910' : '0'])
     downloadCsv('timesheet-sample.csv', lines.map((l) => l.join(',')).join('\n'))
   }
 
@@ -186,7 +191,7 @@ export default function ImportDialog({ companyId, employees, onClose, onApply }:
                       <td>{p.key || '—'}</td>
                       <td>
                         {p.employee
-                          ? p.employee.payType === 'salary' ? <span className="tag neutral">{t('연봉 직원 — 건너뜀', 'Salaried — skipped')}</span> : <strong>{p.employee.name}</strong>
+                          ? p.employee.payType === 'salary' ? <span className="tag neutral">{t('연봉 직원 — 건너뜀', 'Salaried — skipped')}</span> : <strong>{fullName(p.employee)}</strong>
                           : <span className="tag warn">{t('찾지 못함', 'No match')}</span>}
                       </td>
                       <td className="num">{p.patch.regular ?? '—'}</td>

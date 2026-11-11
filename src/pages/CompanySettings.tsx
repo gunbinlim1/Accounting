@@ -1,10 +1,13 @@
 import { Check, FileSignature, Lock, ShieldCheck } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { FeatureList, IndustryPicker } from '../components/IndustryPicker'
 import { ActivityList } from '../components/RunStatus'
+import { industries } from '../config/industries'
+import { industryLabel } from '../lib/labels'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
-import type { Company, DepositSchedule } from '../types'
+import type { Company, DepositSchedule, Industry } from '../types'
 
 function Field({ label, hint, error, children, wide }: { label: string; hint?: string; error?: string; children: ReactNode; wide?: boolean }) {
   return (
@@ -20,7 +23,7 @@ function Field({ label, hint, error, children, wide }: { label: string; hint?: s
 export default function CompanySettings() {
   const { t } = usePrefs()
   const { session } = usePortal()
-  const { company, updateCompanyInfo, activity, signAuthorization } = useStore()
+  const { company, updateCompanyInfo, activity, signAuthorization, employees } = useStore()
   const [d, setD] = useState<Company>(company)
   const [rate, setRate] = useState(String(Math.round(company.sutaRate * 10000) / 100))
   const [saved, setSaved] = useState(false)
@@ -34,13 +37,23 @@ export default function CompanySettings() {
     rate: Number(rate) >= 0 && Number(rate) <= 10 ? '' : t('0~10% 사이', 'Between 0 and 10%'),
     ownerEmail: /\S+@\S+\.\S+/.test(d.ownerEmail) ? '' : t('이메일 형식을 확인하세요', 'Check the email'),
   }
-  const valid = Object.values(errors).every((x) => !x)
+  const tippedStaff = employees.filter((e) => e.active && e.payType === 'tipped')
+  const tipsAllowed = industries[d.industry].tipsAllowed
+  const tipsOn = tipsAllowed && d.tipsEnabled
+  const tipsError = !tipsOn && tippedStaff.length > 0
+    ? t(`팁 직원 ${tippedStaff.length}명의 급여 형태를 먼저 시급·연봉으로 바꿔 주세요`, `Change the pay type of ${tippedStaff.length} tipped employee(s) first`)
+    : ''
+  const pickIndustry = (i: Industry) => {
+    setD((p) => ({ ...p, industry: i, tipsEnabled: i === company.industry ? company.tipsEnabled : industries[i].tipsDefault }))
+    setSaved(false)
+  }
+  const valid = Object.values(errors).every((x) => !x) && !tipsError
   const err = (k: keyof typeof errors) => (touched ? errors[k] : '')
 
   const save = () => {
     setTouched(true)
     if (!valid) return
-    updateCompanyInfo({ ...d, sutaRate: Number(rate) / 100, ein: d.ein.trim() }, session?.name ?? company.ownerName)
+    updateCompanyInfo({ ...d, tipsEnabled: tipsOn, sutaRate: Number(rate) / 100, ein: d.ein.trim() }, session?.name ?? company.ownerName)
     setSaved(true)
   }
 
@@ -79,6 +92,20 @@ export default function CompanySettings() {
               <Field label="ZIP"><input value={d.address.zip} onChange={(e) => setAddr('zip', e.target.value)} /></Field>
             </div>
           </div>
+
+          <h3 className="sub">{t('업종 · 급여 구성', 'Industry & pay setup')} <span className="tag neutral">{industryLabel(company.industry, t)}</span></h3>
+          <p className="muted small">{t('업종에 따라 직원 등록 시 직무 템플릿과 급여 형태, 급여 입력표의 팁 칸이 달라져요. 기존 직원의 직무·급여는 그대로 유지됩니다.', 'Industry sets the role templates, pay types and tip columns. Existing employees keep their roles and pay.')}</p>
+          <IndustryPicker value={d.industry} onChange={pickIndustry} />
+          {tipsAllowed && (
+            <label className="toggle">
+              <input type="checkbox" checked={d.tipsEnabled} onChange={(e) => set('tipsEnabled', e.target.checked)} />
+              <span>
+                {t('팁을 받는 직원이 있어요 (팁 직원·팁 크레딧·팁 입력 사용)', 'Some staff receive tips (tipped pay, tip credit, tip entry)')}
+              </span>
+            </label>
+          )}
+          {touched && tipsError && <p className="error-text">{tipsError}</p>}
+          <FeatureList tipsEnabled={tipsOn} />
 
           <h3 className="sub">{t('텍사스·연방 급여세', 'Texas & federal payroll tax')}</h3>
           <div className="form-grid">

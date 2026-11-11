@@ -1,5 +1,6 @@
-import { restaurantRoles } from '../config/restaurantRoles'
+import { roleTemplate } from '../config/industries'
 import { defaultW4 } from '../lib/federalWithholding'
+import { splitName } from '../lib/names'
 import { toISODate } from '../lib/schedule'
 import type { ActivityEvent, Authorizations, Company, Employee, FringeEntry, PayMethod, RoleId } from '../types'
 import { sampleEmployees } from './sampleEmployees'
@@ -13,10 +14,13 @@ const hoursAgo = (today: Date, h: number) => new Date(today.getTime() - h * 3_60
 let seq = 0
 function staff(prefix: string, name: string, role: RoleId, hireDate: string, extra: Partial<Employee> = {}): Employee {
   seq++
-  const tpl = restaurantRoles[role]
+  const tpl = roleTemplate(role)
+  const { firstName, lastName, middleInitial } = splitName(name)
   return {
     id: `${prefix}-${String(seq).padStart(3, '0')}`,
-    name,
+    firstName,
+    lastName,
+    ...(middleInitial ? { middleInitial } : {}),
     role,
     payType: tpl.payType,
     rate: tpl.rate,
@@ -50,6 +54,8 @@ export const recurringFringes: Record<string, Omit<FringeEntry, 'id'>[]> = {
   'SG-006': [{ itemId: 'health', amount: 450 }, { itemId: 'gtl', amount: 8 }],
   'ES-005': [{ itemId: 'health', amount: 380 }, { itemId: 'vehicle', amount: 120 }],
   'PB-007': [{ itemId: 'meals', amount: 50 }],
+  'LS-009': [{ itemId: 'health', amount: 520 }, { itemId: 'gtl', amount: 12 }],
+  'LS-010': [{ itemId: 'health', amount: 450 }],
 }
 
 /** 데모: Seoul Garden 기존 샘플 직원의 지급 방식·이메일 */
@@ -63,7 +69,9 @@ const seoulExtras: Record<string, { payMethod: PayMethod; eConsent: boolean; ema
   'SG-007': { payMethod: 'firm_check', eConsent: true, email: 'tyler.smith@mail.example' },
 }
 
-const baseCompany = (c: Omit<Company, 'sutaRate' | 'depositSchedule' | 'cutoffBusinessDays' | 'address'> & Partial<Company>): Company => ({
+const baseCompany = (c: Omit<Company, 'sutaRate' | 'depositSchedule' | 'cutoffBusinessDays' | 'address' | 'industry' | 'tipsEnabled'> & Partial<Company>): Company => ({
+  industry: 'restaurant',
+  tipsEnabled: true,
   sutaRate: 0.027,
   depositSchedule: 'semiweekly',
   cutoffBusinessDays: 2,
@@ -99,6 +107,13 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
     id: 'pho-bellaire', legalName: 'Bellaire Noodle House LLC', dba: 'Pho Bellaire', ein: '88-2468135', twcAccount: '99-246813-5',
     authorizations: { form8655: 'pending', twcAgent: 'pending', bankDebit: 'signed' }, ownerName: 'Linh Tran', ownerEmail: 'linh@phobellaire.example', phone: '(713) 555-0166',
     address: { street: '11210 Bellaire Blvd', city: 'Houston', state: 'TX', zip: '77072' },
+  })
+
+  const fab = baseCompany({
+    id: 'lone-star-fab', legalName: 'Lone Star Microfab Inc.', dba: 'Lone Star Microfab', ein: '87-3141592', twcAccount: '99-314159-2',
+    industry: 'manufacturing', tipsEnabled: false, sutaRate: 0.012, authorizations: signed,
+    ownerName: 'Daniel Cho', ownerEmail: 'daniel@lonestarfab.example', phone: '(512) 555-0134',
+    address: { street: '4100 Tech Ridge Blvd', city: 'Austin', state: 'TX', zip: '78753' },
   })
 
   // 기존 샘플 직원은 Seoul Garden에 소속
@@ -151,6 +166,22 @@ export function demoCompanies(today: Date): DemoCompanySeed[] {
       activity: [
         ev('pb2', 3, 'firm', firmAccount.name, 'changes', '수정 요청: Kevin Nguyen 카드 팁 확인', 'Requested changes: check Kevin Nguyen card tips'),
         ev('pb1', 20, 'client', 'Linh Tran', 'submit', '11월 회차 급여 제출', 'Submitted the November payroll'),
+      ],
+    },
+    {
+      company: fab,
+      employees: [
+        staff('LS', 'Priya R. Shah', 'engineer', '2023-04-03', { rate: 96_000, pretaxDeferralRate: 0.06, w4: { ...defaultW4, filingStatus: 'married', signedDate: '2023-04-03' } }),
+        staff('LS', 'James Walker', 'supervisor', '2022-02-14', { pretaxDeferralRate: 0.04 }),
+        staff('LS', 'Hector Garza', 'machine_operator', '2024-06-10', { rate: 20.5 }),
+        staff('LS', 'Thu Le', 'qc_inspector', '2025-01-13'),
+        staff('LS', 'Marcus Johnson', 'maintenance', '2021-09-20', { rate: 28 }),
+        staff('LS', 'Kayla Brooks', 'assembler', '2025-08-04', { payMethod: 'firm_check', bank: undefined }),
+        staff('LS', 'Ray Delgado', 'forklift', '2024-10-21', { jobTitle: 'Shipping & receiving' }),
+      ],
+      status: 'draft',
+      activity: [
+        ev('ls1', 50, 'client', 'Daniel Cho', 'settings', '업종 설정: 생산·제조업 (팁 기능 없음)', 'Industry set: Manufacturing (no tips)'),
       ],
     },
   ]

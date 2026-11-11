@@ -3,13 +3,14 @@ import { useMemo, useState, type CSSProperties } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
 import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
-import { defaultTimeFor } from '../config/restaurantRoles'
+import { defaultTimeFor } from '../config/industries'
 import { formatCurrency, formatPercent, formatSigned } from '../lib/format'
-import { roleLabel } from '../lib/labels'
+import { jobLabel } from '../lib/labels'
 import { calculatePayroll, effectiveEmployee, roundCents, tipCreditRate } from '../lib/payroll'
 import { segmentsOf } from '../lib/segments'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
+import { fullName } from '../lib/names'
 
 function Slider({ label, value, min, max, step, format, onChange }: {
   label: string; value: number; min: number; max: number; step: number; format: (v: number) => string; onChange: (v: number) => void
@@ -28,7 +29,7 @@ function Slider({ label, value, min, max, step, format, onChange }: {
 
 export default function Simulator() {
   const { t } = usePrefs()
-  const { employees, time, ytdGross } = useStore()
+  const { employees, time, ytdGross, company } = useStore()
   const [params, setParams] = useSearchParams()
   const activeList = employees.filter((e) => e.active)
   const selectedId = params.get('e') ?? activeList[0]?.id
@@ -44,7 +45,7 @@ export default function Simulator() {
 
   const sim = useMemo(() => {
     if (!employee) return null
-    const cur = time[employee.id] ?? defaultTimeFor(employee.role)
+    const cur = time[employee.id] ?? defaultTimeFor(employee.role, company.tipsEnabled)
     const hours = cur.regular + cur.overtime
     const curTips = cur.cashTips + cur.cardTips
     const currentTph = hours > 0 ? curTips / hours : 0
@@ -63,7 +64,7 @@ export default function Simulator() {
       ytd,
     })
     return { base, scenario, cur, currentTph }
-  }, [employee, time, ytdGross, raise, deferral, overtime, tipsPerHour, freq])
+  }, [employee, time, ytdGross, raise, deferral, overtime, tipsPerHour, freq, company.tipsEnabled])
 
   if (!employee || !sim) return <div className="page">{t('직원이 없습니다.', 'No employees yet.')}</div>
 
@@ -94,14 +95,14 @@ export default function Simulator() {
         <p className="eyebrow">{t('만약에…?', 'What if…?')}</p>
         <h1>{t('급여 시뮬레이터', 'Pay simulator')}</h1>
         <p className="lead">
-          {t('시급 인상, OT, 팁, 401(k)를 바꿔 보면 직원이 손에 쥐는 돈과 레스토랑 인건비가 어떻게 달라지는지 바로 보여 드려요.', 'Change the rate, OT, tips or 401(k) to see what the employee keeps and what the restaurant pays.')}
+          {t('시급 인상, OT, 팁, 401(k)를 바꿔 보면 직원이 손에 쥐는 돈과 회사 인건비가 어떻게 달라지는지 바로 보여 드려요.', 'Change the rate, OT, tips or 401(k) to see what the employee keeps and what the company pays.')}
         </p>
       </header>
 
       <div className="person-picker">
         {activeList.map((e) => (
           <button key={e.id} className={e.id === employee.id ? 'on' : ''} onClick={() => { setParams({ e: e.id }); reset() }}>
-            {e.name} <span className="muted">· {roleLabel(e.role, t)}</span>
+            {fullName(e)} <span className="muted">· {jobLabel(e, t)}</span>
           </button>
         ))}
       </div>
@@ -129,7 +130,7 @@ export default function Simulator() {
           )}
           {breakEvenTph > 0 && (
             <p className="muted small">
-              {t(`시간당 팁이 ${formatCurrency(breakEvenTph)} 미만이면 회사가 최저임금 차액을 보전합니다.`, `Below ${formatCurrency(breakEvenTph)}/h in tips, the restaurant pays the minimum-wage difference.`)}
+              {t(`시간당 팁이 ${formatCurrency(breakEvenTph)} 미만이면 회사가 최저임금 차액을 보전합니다.`, `Below ${formatCurrency(breakEvenTph)}/h in tips, the company pays the minimum-wage difference.`)}
             </p>
           )}
           <Slider label={t('401(k) 저축률', '401(k) rate')} value={deferralValue} min={0} max={25} step={1} format={(v) => `${v}%`} onChange={setDeferral} />
@@ -152,7 +153,7 @@ export default function Simulator() {
 
           <dl className="impact">
             <div><dt>{t('직원 연간 수입 변화', 'Employee keeps / yr')}</dt><dd>{formatSigned(annualTakeHome)}</dd></div>
-            <div><dt>{t('레스토랑 연간 인건비 변화', 'Restaurant cost / yr')}</dt><dd>{formatSigned(annualCost)}</dd></div>
+            <div><dt>{t('회사 연간 인건비 변화', 'Company cost / yr')}</dt><dd>{formatSigned(annualCost)}</dd></div>
             <div><dt>{t('45B 팁 크레딧 (연)', '45B tip credit / yr')}</dt><dd>{formatCurrency(scenario.tipCredit45B * periods)}</dd></div>
           </dl>
 
@@ -162,7 +163,7 @@ export default function Simulator() {
               <p>
                 {t(
                   `이 조건이면 팁이 부족해 회사가 2주마다 ${formatCurrency(scenario.tipMakeUp)}을 최저임금 보전으로 지급합니다 (연 ${formatCurrency(scenario.tipMakeUp * periods)}).`,
-                  `Tips fall short here, so the restaurant adds ${formatCurrency(scenario.tipMakeUp)} make-up pay every two weeks (${formatCurrency(scenario.tipMakeUp * periods)}/yr).`,
+                  `Tips fall short here, so the company adds ${formatCurrency(scenario.tipMakeUp)} make-up pay every two weeks (${formatCurrency(scenario.tipMakeUp * periods)}/yr).`,
                 )}
               </p>
             </div>
@@ -183,8 +184,8 @@ export default function Simulator() {
               <Lightbulb size={20} aria-hidden />
               <p>
                 {t(
-                  `${raise}% 인상 시 레스토랑은 연 ${formatCurrency(annualCost)}를 더 쓰고, 직원은 세후 연 ${formatCurrency(annualTakeHome)}를 더 받습니다 (${formatPercent(annualTakeHome / annualCost, 0)}).`,
-                  `A ${raise}% raise costs the restaurant ${formatCurrency(annualCost)}/yr; the employee keeps ${formatCurrency(annualTakeHome)}/yr after tax (${formatPercent(annualTakeHome / annualCost, 0)}).`,
+                  `${raise}% 인상 시 회사는 연 ${formatCurrency(annualCost)}를 더 쓰고, 직원은 세후 연 ${formatCurrency(annualTakeHome)}를 더 받습니다 (${formatPercent(annualTakeHome / annualCost, 0)}).`,
+                  `A ${raise}% raise costs the company ${formatCurrency(annualCost)}/yr; the employee keeps ${formatCurrency(annualTakeHome)}/yr after tax (${formatPercent(annualTakeHome / annualCost, 0)}).`,
                 )}
                 {employee.payType === 'tipped' &&
                   t(' 팁 직원은 현금 시급을 올리면 팁 크레딧이 줄어 OT 단가도 함께 바뀝니다.', ' For tipped staff, a higher cash wage shrinks the tip credit and changes the OT rate too.')}
@@ -192,7 +193,9 @@ export default function Simulator() {
             </div>
           )}
           <p className="muted small">
-            {t(`텍사스: 주 소득세 없음 · 최저임금 ${formatCurrency(cfg.minimumWage)} · 팁 직원 현금 시급 최소 ${formatCurrency(cfg.tippedCashWage)}`, `Texas: no state income tax · minimum wage ${formatCurrency(cfg.minimumWage)} · tipped cash wage ≥ ${formatCurrency(cfg.tippedCashWage)}`)}
+            {company.tipsEnabled
+              ? t(`텍사스: 주 소득세 없음 · 최저임금 ${formatCurrency(cfg.minimumWage)} · 팁 직원 현금 시급 최소 ${formatCurrency(cfg.tippedCashWage)}`, `Texas: no state income tax · minimum wage ${formatCurrency(cfg.minimumWage)} · tipped cash wage ≥ ${formatCurrency(cfg.tippedCashWage)}`)
+              : t(`텍사스: 주 소득세 없음 · 최저임금 ${formatCurrency(cfg.minimumWage)}`, `Texas: no state income tax · minimum wage ${formatCurrency(cfg.minimumWage)}`)}
           </p>
         </section>
       </div>

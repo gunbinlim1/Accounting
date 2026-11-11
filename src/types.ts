@@ -2,7 +2,11 @@ export type PayType = 'salary' | 'hourly' | 'tipped'
 
 export type PayFrequency = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly'
 
-export type RoleId = 'server' | 'bartender' | 'host' | 'busser' | 'runner' | 'cook' | 'dishwasher' | 'manager'
+/** 직무 템플릿 ID (업종별 목록은 src/config/industries.ts) */
+export type RoleId = string
+
+/** 고객사 업종 — 업종에 따라 직무 템플릿·급여 형태·팁 기능이 달라짐 */
+export type Industry = 'restaurant' | 'service' | 'retail' | 'manufacturing'
 
 export type FilingStatus = 'single' | 'married' | 'hoh'
 
@@ -60,8 +64,14 @@ export interface Address {
 
 export interface Employee {
   id: string
-  name: string
+  /** 법적 이름 (W-4 Step 1a·I-9 Section 1과 동일) */
+  firstName: string
+  /** 미들네임 첫 글자 (선택) */
+  middleInitial?: string
+  lastName: string
   role: RoleId
+  /** 직함 직접 입력 (비우면 직무 템플릿 이름) */
+  jobTitle?: string
   payType: PayType
   /** salary: 연봉, hourly/tipped: 시급(현금 지급분) */
   rate: number
@@ -242,11 +252,15 @@ export type RunStatus = 'draft' | 'submitted' | 'in_review' | 'changes_requested
 
 export type DepositSchedule = 'monthly' | 'semiweekly'
 
-/** 고객사 (레스토랑) 정보 */
+/** 고객사 정보 */
 export interface Company {
   id: string
   legalName: string
   dba: string
+  /** 업종 — 포털 생성 시 선택 */
+  industry: Industry
+  /** 팁 받는 직원 운영 여부 (팁 크레딧·팁 입력·45B). 업종 기본값에서 시작 */
+  tipsEnabled: boolean
   /** 연방 고용주 번호 XX-XXXXXXX */
   ein: string
   /** 텍사스 TWC 계정번호 */

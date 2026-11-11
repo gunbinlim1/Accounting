@@ -2,13 +2,14 @@ import { CheckCircle2, FileText, Landmark, ShieldCheck, TriangleAlert } from 'lu
 import { useMemo, useState } from 'react'
 import W2Preview from '../components/W2Preview'
 import { formatCurrency, formatDate, initials } from '../lib/format'
-import { roleLabel } from '../lib/labels'
+import { jobLabel } from '../lib/labels'
 import { roundCents } from '../lib/money'
 import { form941, futaSchedule, quarterOf, twcQuarter, w2For, type Quarter } from '../lib/taxes'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
 import type { TaxKind } from '../types'
+import { fullName } from '../lib/names'
 
 const kindLabel = (k: TaxKind, t: (ko: string, en: string) => string) =>
   ({ federal: t('IRS 연방 원천징수 + FICA', 'IRS federal withholding + FICA'), futa: t('IRS FUTA (연방 실업세)', 'IRS FUTA'), twc: t('텍사스 TWC 실업세', 'Texas TWC unemployment') })[k]
@@ -198,8 +199,8 @@ export default function Taxes() {
                 return (
                   <li key={e.id}>
                     <button className={selected?.id === e.id ? 'on' : ''} onClick={() => setW2Emp(e.id)}>
-                      <span className="avatar sm">{initials(e.name)}</span>
-                      <span className="plist-name"><strong>{e.name}</strong><small>{roleLabel(e.role, t)} · {e.eConsent ? t('전자 수령', 'Electronic') : t('종이 발송', 'Paper')}</small></span>
+                      <span className="avatar sm">{initials(fullName(e))}</span>
+                      <span className="plist-name"><strong>{fullName(e)}</strong><small>{jobLabel(e, t)} · {e.eConsent ? t('전자 수령', 'Electronic') : t('종이 발송', 'Paper')}</small></span>
                       <span className="num"><strong>{formatCurrency(w.box1)}</strong><small className="muted"> Box 1</small></span>
                     </button>
                   </li>

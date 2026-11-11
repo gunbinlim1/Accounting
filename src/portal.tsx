@@ -1,15 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { companySchedule } from './config/payrollConfig'
-import { defaultTimeFor } from './config/restaurantRoles'
+import { defaultTimeFor } from './config/industries'
 import { demoCompanies, demoTimeTweaks, recurringFringes } from './data/demoPortal'
 import { computeResults } from './lib/compute'
 import { nextPayDate, parseISODate, toISODate } from './lib/schedule'
 import { federalDepositFor, paymentsFor } from './lib/payments'
 import { federalDueDate, futaSchedule, quarterDueDate, twcQuarter, type Quarter } from './lib/taxes'
+import { splitName } from './lib/names'
 import { ytdFor } from './lib/ytd'
-import type { CompanyData, Employee, PayRun, Session, TaxDeposit, TimeEntry } from './types'
+import type { Company, CompanyData, Employee, PayRun, Session, TaxDeposit, TimeEntry } from './types'
 
-const STORAGE_KEY = 'payday-portal-v2'
+const STORAGE_KEY = 'payday-portal-v3'
+/** v2: 직원 이름 한 칸(name), 업종 없음(모두 레스토랑) → v3로 옮김 */
+const LEGACY_KEY = 'payday-portal-v2'
 const SESSION_KEY = 'payday-portal-session-v1'
 
 export const currentPayDate = (from = new Date()) =>
@@ -18,8 +21,8 @@ export const currentPayDate = (from = new Date()) =>
 /** 데모용 결정적 변동 (매번 같은 값) */
 const wobble = (i: number, k: number) => 1 + 0.09 * Math.sin(i * 1.7 + k * 0.9)
 
-function timeFor(e: Employee, i: number): TimeEntry {
-  const base = defaultTimeFor(e.role)
+function timeFor(e: Employee, i: number, tipsEnabled: boolean): TimeEntry {
+  const base = defaultTimeFor(e.role, tipsEnabled)
   const f = wobble(i, e.id.charCodeAt(e.id.length - 1))
   const fringes = (recurringFringes[e.id] ?? []).map((x, j) => ({ ...x, id: `${e.id}-f${j}` }))
   if (e.payType === 'salary') return { ...base, fringes }
@@ -51,7 +54,7 @@ function initialCompanies(): CompanyData[] {
     const runs: PayRun[] = []
     pastDates.forEach((pd, i) => {
       const eligible = employees.filter((e) => e.hireDate <= pd && (e.active || pd < `${year}-06-01`)).map((e) => ({ ...e, active: true }))
-      const time = Object.fromEntries(eligible.map((e) => [e.id, timeFor(e, i)]))
+      const time = Object.fromEntries(eligible.map((e) => [e.id, timeFor(e, i, company.tipsEnabled)]))
       const results = computeResults(eligible, time, ytdFor(runs, pd), company.sutaRate)
       runs.push({ id: `run-${pd}`, payDate: pd, approvedAt: `${pd}T12:00:00.000Z`, time, results, payments: paymentsFor(employees, results) })
     })
@@ -68,7 +71,7 @@ function initialCompanies(): CompanyData[] {
     }
 
     // ── 이번 회차 입력
-    const time: Record<string, TimeEntry> = Object.fromEntries(employees.map((e) => [e.id, timeFor(e, pastDates.length)]))
+    const time: Record<string, TimeEntry> = Object.fromEntries(employees.map((e) => [e.id, timeFor(e, pastDates.length, company.tipsEnabled)]))
     for (const [id, tweak] of Object.entries(demoTimeTweaks)) if (time[id]) time[id] = { ...time[id], ...tweak }
 
     const ytd = ytdFor(runs, payDate)
@@ -94,6 +97,51 @@ function initialCompanies(): CompanyData[] {
       activity: seed.activity,
     }
   })
+}
+
+type LegacyEmployee = Omit<Employee, 'firstName' | 'lastName'> & { name?: string; firstName?: string; lastName?: string }
+
+/** 옛 데이터 → 현재 모양 (이름 분리, 업종 기본값) */
+function migrateCompany(c: CompanyData): CompanyData {
+  const fixEmp = (e: LegacyEmployee): Employee => {
+    if (typeof e.firstName === 'string' && typeof e.lastName === 'string') return e as Employee
+    const { name, ...rest } = e
+    return { ...rest, ...splitName(name ?? '') } as Employee
+  }
+  const company: Company = { ...c.company, industry: c.company.industry ?? 'restaurant', tipsEnabled: c.company.tipsEnabled ?? true }
+  const snap = c.current.snapshot
+  return {
+    ...c,
+    company,
+    employees: (c.employees as LegacyEmployee[]).map(fixEmp),
+    current: snap ? { ...c.current, snapshot: { ...snap, employees: (snap.employees as LegacyEmployee[]).map(fixEmp) } } : c.current,
+  }
+}
+
+function loadCompanies(): CompanyData[] {
+  const valid = (v: unknown) => Array.isArray(v) && v.length > 0 && 'deposits' in (v as object[])[0]
+  const current = load<CompanyData[] | null>(STORAGE_KEY, () => null, valid)
+  if (current) return current.map(migrateCompany)
+  const legacy = load<CompanyData[] | null>(LEGACY_KEY, () => null, valid)
+  if (legacy) {
+    save(LEGACY_KEY, null)
+    return legacy.map(migrateCompany)
+  }
+  return initialCompanies()
+}
+
+/** 새로 만든 고객사 포털의 빈 데이터 (직원·급여 기록 없음) */
+export function newCompanyData(company: Company, actorName: string, actor: 'client' | 'firm'): CompanyData {
+  const at = new Date().toISOString()
+  return {
+    company,
+    employees: [],
+    time: {},
+    runs: [],
+    deposits: [],
+    current: { payDate: currentPayDate(), status: 'draft' },
+    activity: [{ id: `ev-${Date.now()}-setup`, at, actor, actorName, kind: 'settings', ko: '고객 포털 생성', en: 'Client portal created' }],
+  }
 }
 
 function load<T>(key: string, fallback: () => T, valid: (v: unknown) => boolean): T {
@@ -124,15 +172,15 @@ interface Portal {
   login: (session: Session) => void
   logout: () => void
   updateCompany: (id: string, fn: (c: CompanyData) => CompanyData) => void
+  /** 새 고객사 포털 생성 */
+  addCompany: (c: CompanyData) => void
   resetDemo: () => void
 }
 
 const PortalContext = createContext<Portal | null>(null)
 
 export function PortalProvider({ children }: { children: ReactNode }) {
-  const [companies, setCompanies] = useState<CompanyData[]>(() =>
-    load(STORAGE_KEY, initialCompanies, (v) => Array.isArray(v) && v.length > 0 && 'deposits' in (v as object[])[0]),
-  )
+  const [companies, setCompanies] = useState<CompanyData[]>(loadCompanies)
   const [session, setSession] = useState<Session | null>(() =>
     load<Session | null>(SESSION_KEY, () => null, (v) => !!v && typeof v === 'object' && 'role' in (v as object)),
   )
@@ -151,6 +199,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       login: setSession,
       logout: () => setSession(null),
       updateCompany,
+      addCompany: (c: CompanyData) => setCompanies((list) => [...list.filter((x) => x.company.id !== c.company.id), c]),
       resetDemo: () => setCompanies(initialCompanies()),
     }),
     [companies, session, updateCompany],

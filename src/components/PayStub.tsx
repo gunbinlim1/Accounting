@@ -20,7 +20,7 @@ interface Line {
   note?: string
 }
 
-/** 각 항목을 쉬운 말로 설명하는 레스토랑 급여명세서 */
+/** 각 항목을 쉬운 말로 설명하는 급여명세서 */
 export default function PayStub({ employee: e, result: r, time }: Props) {
   const { t } = usePrefs()
   const periods = periodsPerYear[companySchedule.frequency]
@@ -80,7 +80,7 @@ export default function PayStub({ employee: e, result: r, time }: Props) {
           <div className="stub-gross">{formatCurrency(r.grossPay)}</div>
           {r.hours > 0 && (
             <div className="muted small">
-              {t('팁 포함 시간당', 'Effective')} {formatCurrency(r.grossPay / r.hours)}/h · {r.hours}h
+              {r.cashTips + r.cardTips > 0 ? t('팁 포함 시간당', 'Effective') : t('시간당', 'Per hour')} {formatCurrency(r.grossPay / r.hours)}/h · {r.hours}h
             </div>
           )}
         </div>

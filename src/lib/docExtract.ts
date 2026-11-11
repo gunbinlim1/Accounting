@@ -5,6 +5,7 @@
  * 읽은 값은 항상 고객이 확인해야 합니다.
  */
 import type { CitizenshipStatus, FilingStatus } from '../types'
+import { splitFirst } from './names'
 
 export interface PdfField {
   name: string
@@ -37,8 +38,14 @@ const iso = (v: string) => {
 }
 const hint = (f: PdfField, re: RegExp) => re.test(f.name)
 
-export interface W4Extract {
-  name?: string
+/** 양식에서 읽은 이름 (성·이름 분리) */
+export interface NameExtract {
+  firstName?: string
+  middleInitial?: string
+  lastName?: string
+}
+
+export interface W4Extract extends NameExtract {
   ssn?: string
   street?: string
   city?: string
@@ -64,7 +71,9 @@ export function mapW4(fields: PdfField[]): W4Extract {
 
   const first = texts.find((f) => hint(f, /first|f1_01/i)) ?? texts.find((f) => !/\d/.test(f.value))
   const last = texts.find((f) => f !== first && hint(f, /last|f1_02/i)) ?? texts.filter((f) => !/\d/.test(f.value))[1]
-  if (first) out.name = [first.value, last?.value].filter(Boolean).join(' ')
+  // W-4 Step 1(a): "First name and middle initial" / "Last name"
+  if (first) Object.assign(out, splitFirst(first.value))
+  if (last) out.lastName = last.value
 
   const cityLine = texts.find((f) => CITY.test(f.value))
   if (cityLine) {
@@ -107,8 +116,7 @@ export function mapW4(fields: PdfField[]): W4Extract {
   return out
 }
 
-export interface I9Extract {
-  name?: string
+export interface I9Extract extends NameExtract {
   ssn?: string
   dob?: string
   email?: string
@@ -129,7 +137,10 @@ export function mapI9(fields: PdfField[]): I9Extract {
   const out: I9Extract = {}
   const last = texts.find((f) => hint(f, /last\s*name/i))
   const first = texts.find((f) => hint(f, /first\s*name/i))
-  if (first || last) out.name = [first?.value, last?.value].filter(Boolean).join(' ')
+  const middle = texts.find((f) => hint(f, /middle|initial/i) && /^[A-Za-z]\.?$/.test(f.value))
+  if (first) Object.assign(out, splitFirst(first.value))
+  if (last) out.lastName = last.value
+  if (middle) out.middleInitial = middle.value[0].toUpperCase()
   const ssn = texts.find((f) => SSN.test(f.value))
   if (ssn) out.ssn = ssn.value
   const dob = texts.find((f) => hint(f, /birth|dob/i) && iso(f.value))
@@ -184,7 +195,7 @@ export async function demoFormPdf(kind: 'W-4' | 'I-9'): Promise<Blob> {
     y -= 24
   }
   if (kind === 'W-4') {
-    text('Step1a.FirstName', 'Step 1(a) First name', 'Jamie')
+    text('Step1a.FirstName', 'Step 1(a) First name and middle initial', 'Jamie K')
     text('Step1a.LastName', 'Last name', 'Yoon')
     text('Step1a.Address', 'Address', '9500 Bellaire Blvd #7')
     text('Step1a.CityStateZip', 'City, state, ZIP', 'Houston, TX 77036')
@@ -202,6 +213,7 @@ export async function demoFormPdf(kind: 'W-4' | 'I-9'): Promise<Blob> {
   } else {
     text('Last Name', 'Last name', 'Yoon')
     text('First Name', 'First name', 'Jamie')
+    text('Middle Initial', 'Middle initial', 'K')
     text('Address Street', 'Address', '9500 Bellaire Blvd #7')
     text('City or Town', 'City', 'Houston')
     text('State', 'State', 'TX')

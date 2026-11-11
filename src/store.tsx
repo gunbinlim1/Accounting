@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
 import { companySchedule } from './config/payrollConfig'
-import { defaultTimeFor } from './config/restaurantRoles'
+import { defaultTimeFor, industries } from './config/industries'
 import { computeResults } from './lib/compute'
 import { effectiveEmployee } from './lib/payroll'
 import { parseISODate, subtractBusinessDays } from './lib/schedule'
@@ -10,6 +10,7 @@ import type {
   ActivityEvent, Authorizations, Company, CompanyData, CurrentRun, Employee, PayRun, PayrollResult, RunStatus, TaxDeposit, TaxKind, TimeEntry,
 } from './types'
 import { federalDepositFor, paymentsFor } from './lib/payments'
+import { fullName } from './lib/names'
 
 const emptyTime: TimeEntry = { regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }
 
@@ -127,12 +128,12 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
       update((c) => {
         const exists = c.employees.some((x) => x.id === e.id)
         const ev = actorName
-          ? [event('client', actorName, 'employee', exists ? `${e.name} 직원 정보 수정` : `${e.name} 직원 등록`, exists ? `Updated ${e.name}` : `Added employee ${e.name}`)]
+          ? [event('client', actorName, 'employee', exists ? `${fullName(e)} 직원 정보 수정` : `${fullName(e)} 직원 등록`, exists ? `Updated ${fullName(e)}` : `Added employee ${fullName(e)}`)]
           : []
         return {
           ...c,
           employees: exists ? c.employees.map((x) => (x.id === e.id ? e : x)) : [...c.employees, e],
-          time: c.time[e.id] ? c.time : { ...c.time, [e.id]: defaultTimeFor(e.role) },
+          time: c.time[e.id] ? c.time : { ...c.time, [e.id]: defaultTimeFor(e.role, c.company.tipsEnabled) },
           activity: [...ev, ...c.activity],
         }
       }),
@@ -144,7 +145,12 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
       update((c) => ({ ...c, time: { ...c.time, [id]: { ...(c.time[id] ?? emptyTime), ...patch } } })),
 
     updateCompanyInfo: (company, actorName) =>
-      update((c) => ({ ...c, company, activity: [event('client', actorName, 'settings', '회사 정보 수정', 'Updated company settings'), ...c.activity] })),
+      update((c) => {
+        const changed = c.company.industry !== company.industry || c.company.tipsEnabled !== company.tipsEnabled
+        const ko = changed ? `업종·급여 구성 변경: ${industries[company.industry].ko}${company.tipsEnabled ? ' (팁 사용)' : ' (팁 없음)'}` : '회사 정보 수정'
+        const en = changed ? `Industry set: ${industries[company.industry].en}${company.tipsEnabled ? ' (tips on)' : ' (no tips)'}` : 'Updated company settings'
+        return { ...c, company, activity: [event('client', actorName, 'settings', ko, en), ...c.activity] }
+      }),
 
     submitRun: (actorName) => {
       const overrides = data.employees.filter((e) => e.active && data.time[e.id]?.rate !== undefined).length

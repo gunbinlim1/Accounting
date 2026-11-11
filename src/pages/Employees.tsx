@@ -4,13 +4,14 @@ import { Link, useNavigate } from 'react-router-dom'
 import { companySchedule, periodsPerYear } from '../config/payrollConfig'
 import { i9Badge, i9State, maskSsn } from '../lib/compliance'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
-import { filingLabel, roleLabel } from '../lib/labels'
+import { filingLabel, jobLabel } from '../lib/labels'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
 import type { Employee } from '../types'
+import { compareByName, fullName, sortName } from '../lib/names'
 
-type Filter = 'active' | 'attention' | 'tipped' | 'inactive' | 'all'
+type Filter = 'active' | 'attention' | 'tipped' | 'hourly' | 'inactive' | 'all'
 type Sort = 'name' | 'role' | 'hire' | 'pay'
 
 /** 이름으로 정해지는 아바타 색 (항목 구분용, 데이터 의미 없음) */
@@ -50,6 +51,7 @@ export default function Employees() {
     active: employees.filter((e) => e.active).length,
     attention: enriched.filter((x) => x.attention).length,
     tipped: employees.filter((e) => e.active && e.payType === 'tipped').length,
+    hourly: employees.filter((e) => e.active && e.payType === 'hourly').length,
     inactive: employees.filter((e) => !e.active).length,
     all: employees.length,
   }
@@ -57,6 +59,7 @@ export default function Employees() {
     active: t('재직', 'Active'),
     attention: t('서류 확인 필요', 'Needs paperwork'),
     tipped: t('팁 직원', 'Tipped'),
+    hourly: t('시급 직원', 'Hourly'),
     inactive: t('퇴사', 'Former'),
     all: t('전체', 'All'),
   }
@@ -65,18 +68,19 @@ export default function Employees() {
   const list = enriched
     .filter(({ e, attention }) => {
       const q = query.trim().toLowerCase()
-      if (q && !`${e.name} ${roleLabel(e.role, t)} ${e.id} ${e.email ?? ''}`.toLowerCase().includes(q)) return false
+      if (q && !`${fullName(e)} ${sortName(e)} ${jobLabel(e, t)} ${e.id} ${e.email ?? ''}`.toLowerCase().includes(q)) return false
       if (filter === 'active') return e.active
       if (filter === 'inactive') return !e.active
       if (filter === 'attention') return attention
       if (filter === 'tipped') return e.active && e.payType === 'tipped'
+      if (filter === 'hourly') return e.active && e.payType === 'hourly'
       return true
     })
     .sort((a, b) => {
-      if (sort === 'role') return roleLabel(a.e.role, t).localeCompare(roleLabel(b.e.role, t)) || a.e.name.localeCompare(b.e.name)
+      if (sort === 'role') return jobLabel(a.e, t).localeCompare(jobLabel(b.e, t)) || compareByName(a.e, b.e)
       if (sort === 'hire') return a.e.hireDate.localeCompare(b.e.hireDate)
       if (sort === 'pay') return annual(b.e) - annual(a.e)
-      return a.e.name.localeCompare(b.e.name)
+      return compareByName(a.e, b.e)
     })
 
   return (
@@ -95,9 +99,15 @@ export default function Employees() {
         <button className={filter === 'active' ? 'on' : ''} onClick={() => setFilter('active')}>
           <strong>{counts.active}</strong><span>{t('재직 중', 'Active')}</span>
         </button>
-        <button className={filter === 'tipped' ? 'on' : ''} onClick={() => setFilter('tipped')}>
-          <strong>{counts.tipped}</strong><span>{t('팁 직원', 'Tipped')}</span>
-        </button>
+        {company.tipsEnabled ? (
+          <button className={filter === 'tipped' ? 'on' : ''} onClick={() => setFilter('tipped')}>
+            <strong>{counts.tipped}</strong><span>{t('팁 직원', 'Tipped')}</span>
+          </button>
+        ) : (
+          <button className={filter === 'hourly' ? 'on' : ''} onClick={() => setFilter('hourly')}>
+            <strong>{counts.hourly}</strong><span>{t('시급 직원', 'Hourly')}</span>
+          </button>
+        )}
         <button className={`${filter === 'attention' ? 'on' : ''}${counts.attention ? ' warn' : ''}`} onClick={() => setFilter('attention')}>
           <strong>{counts.attention}</strong><span>{t('W-4·I-9 확인 필요', 'W-4 / I-9 to fix')}</span>
         </button>
@@ -146,16 +156,16 @@ export default function Employees() {
           <ul className="plist">
             {list.map(({ e, i9 }) => {
               const r = results.find((x) => x.employeeId === e.id)
-              const hue = avatarHue(e.name)
+              const hue = avatarHue(fullName(e))
               return (
                 <li key={e.id} className={e.active ? '' : 'inactive'}>
                   <button className="plist-row" onClick={() => navigate(`/employees/${e.id}`)}>
                     <span className="plist-person">
-                      <span className="avatar" style={{ background: `hsl(${hue} 70% 92%)`, color: `hsl(${hue} 45% 32%)` }}>{initials(e.name)}</span>
+                      <span className="avatar" style={{ background: `hsl(${hue} 70% 92%)`, color: `hsl(${hue} 45% 32%)` }}>{initials(fullName(e))}</span>
                       <span className="plist-name">
-                        <strong>{e.name}{!e.active && <span className="tag neutral">{t('퇴사', 'Former')}</span>}</strong>
+                        <strong>{fullName(e)}{!e.active && <span className="tag neutral">{t('퇴사', 'Former')}</span>}</strong>
                         <small>
-                          {roleLabel(e.role, t)} · {t('입사', 'Hired')} {formatDate(new Date(e.hireDate + 'T00:00'), locale, { year: 'numeric', month: 'short', day: 'numeric' })} ({tenure(e.hireDate, today, t)}) · SSN {maskSsn(e.ssnLast4)}
+                          {jobLabel(e, t)} · {t('입사', 'Hired')} {formatDate(new Date(e.hireDate + 'T00:00'), locale, { year: 'numeric', month: 'short', day: 'numeric' })} ({tenure(e.hireDate, today, t)}) · SSN {maskSsn(e.ssnLast4)}
                         </small>
                       </span>
                     </span>

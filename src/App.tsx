@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { ClientLayout, FirmLayout } from './components/Layout'
 import CompanySettings from './pages/CompanySettings'
+import CompanySetup from './pages/CompanySetup'
 import Dashboard from './pages/Dashboard'
 import EmployeeForm from './pages/EmployeeForm'
 import EmployeePortal from './pages/EmployeePortal'
@@ -24,6 +25,7 @@ export default function App() {
         <BrowserRouter basename={import.meta.env.BASE_URL}>
           <Routes>
             <Route path="login" element={<Login />} />
+            <Route path="signup" element={<CompanySetup mode="client" />} />
             <Route path="me" element={<EmployeePortal />} />
             <Route element={<ClientLayout />}>
               <Route index element={<Dashboard />} />
@@ -40,6 +42,7 @@ export default function App() {
             <Route path="firm" element={<FirmLayout />}>
               <Route index element={<FirmQueue />} />
               <Route path="settings" element={<FirmSettings />} />
+              <Route path="new" element={<CompanySetup mode="firm" />} />
               <Route path="c/:companyId" element={<FirmReview />} />
               <Route path="c/:companyId/taxes" element={<FirmReview tab="taxes" />} />
               <Route path="c/:companyId/history" element={<FirmReview tab="history" />} />

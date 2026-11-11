@@ -1,22 +1,23 @@
-import { ArrowLeft, ArrowRight, Check, FileCheck2, IdCard, Lock, ShieldCheck, UserRound, Utensils } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BriefcaseBusiness, Check, FileCheck2, IdCard, Lock, ShieldCheck, UserRound } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
 import DocUpload from '../components/DocUpload'
 import type { I9Extract, W4Extract } from '../lib/docExtract'
 import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
-import { restaurantRoles, roleOrder } from '../config/restaurantRoles'
+import { defaultTimeFor, industries, roleTemplate, rolesFor } from '../config/industries'
 import { addBusinessDays, keepLast4, maskSsn } from '../lib/compliance'
 import { defaultW4 } from '../lib/federalWithholding'
 import { formatCurrency, formatCurrencyWhole, formatDate } from '../lib/format'
-import { citizenshipLabel, filingLabel, payLabel, roleLabel } from '../lib/labels'
+import { citizenshipLabel, filingLabel, industryLabel, jobLabel, payLabel, roleLabel } from '../lib/labels'
+import { fullName, sortName } from '../lib/names'
 import { calculatePayroll } from '../lib/payroll'
 import { parseISODate, toISODate } from '../lib/schedule'
 import { segmentsOf } from '../lib/segments'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
-import type { CitizenshipStatus, Employee, FilingStatus, PayMethod, PayType, RoleId, UploadedDoc } from '../types'
+import type { CitizenshipStatus, Company, Employee, FilingStatus, PayMethod, PayType, RoleId, UploadedDoc } from '../types'
 
 interface DocDraft {
   title: string
@@ -28,8 +29,11 @@ interface DocDraft {
 interface Draft {
   id?: string
   active: boolean
-  name: string
+  lastName: string
+  firstName: string
+  middleInitial: string
   role: RoleId
+  jobTitle: string
   payType: PayType
   rate: string
   pretax: string
@@ -76,10 +80,18 @@ interface Draft {
 const today = () => toISODate(new Date())
 const blankDoc: DocDraft = { title: '', issuer: '', number: '', expires: '' }
 
-function newDraft(): Draft {
-  const role: RoleId = 'server'
+/** 업종 기본 직무 (팁 기능이 꺼져 있어 숨겨진 직무면 첫 번째 직무) */
+function defaultRoleFor(company: Company): RoleId {
+  const list = rolesFor(company)
+  const preferred = industries[company.industry].defaultRole
+  return list.some((r) => r.id === preferred) ? preferred : list[0].id
+}
+
+function newDraft(company: Company): Draft {
+  const role = defaultRoleFor(company)
+  const tpl = roleTemplate(role)
   return {
-    active: true, name: '', role, payType: restaurantRoles[role].payType, rate: String(restaurantRoles[role].rate), pretax: '0',
+    active: true, lastName: '', firstName: '', middleInitial: '', role, jobTitle: '', payType: tpl.payType, rate: String(tpl.rate), pretax: '0',
     hireDate: today(), ssn: '', ssnLast4Existing: '', dob: '', phone: '', email: '',
     street: '', city: 'Houston', state: 'TX', zip: '',
     w4Received: true, filingStatus: 'single', multipleJobs: false, dependents: '0', children: '0', otherDependents: '0',
@@ -95,7 +107,7 @@ function fromEmployee(e: Employee): Draft {
   const docs = e.i9.documents.map((d) => ({ title: d.title, issuer: d.issuer, number: d.numberLast4, expires: d.expires ?? '' }))
   while (docs.length < 2) docs.push({ ...blankDoc })
   return {
-    id: e.id, active: e.active, name: e.name, role: e.role, payType: e.payType, rate: String(e.rate),
+    id: e.id, active: e.active, lastName: e.lastName, firstName: e.firstName, middleInitial: e.middleInitial ?? '', role: e.role, jobTitle: e.jobTitle ?? '', payType: e.payType, rate: String(e.rate),
     pretax: String(Math.round(e.pretaxDeferralRate * 1000) / 10), hireDate: e.hireDate,
     ssn: '', ssnLast4Existing: e.ssnLast4, dob: e.dateOfBirth ?? '', phone: e.phone ?? '', email: e.email ?? '',
     street: e.address.street, city: e.address.city, state: e.address.state, zip: e.address.zip,
@@ -118,8 +130,11 @@ function toEmployee(d: Draft, id: string): Employee {
   const needsUscis = d.citizenship === 'lpr' || d.citizenship === 'authorized'
   return {
     id,
-    name: d.name.trim(),
+    firstName: d.firstName.trim(),
+    lastName: d.lastName.trim(),
+    middleInitial: d.middleInitial.trim().replace(/\.$/, '').toUpperCase() || undefined,
     role: d.role,
+    jobTitle: d.jobTitle.trim() || undefined,
     payType: d.payType,
     rate: num(d.rate),
     pretaxDeferralRate: num(d.pretax) / 100,
@@ -205,14 +220,14 @@ export default function EmployeeForm() {
   const { employees, upsertEmployee, company } = useStore()
   const { session } = usePortal()
   const existing = employees.find((e) => e.id === id)
-  const [d, setD] = useState<Draft>(() => (existing ? fromEmployee(existing) : newDraft()))
+  const [d, setD] = useState<Draft>(() => (existing ? fromEmployee(existing) : newDraft(company)))
   const [step, setStep] = useState(0)
   const [showErrors, setShowErrors] = useState(false)
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }))
   const setDoc = (i: number, patch: Partial<DocDraft>) => setD((p) => ({ ...p, docs: p.docs.map((x, j) => (j === i ? { ...x, ...patch } : x)) }))
 
   const steps = [
-    { label: t('직무·급여', 'Role & pay'), icon: <Utensils size={16} /> },
+    { label: t('직무·급여', 'Role & pay'), icon: <BriefcaseBusiness size={16} /> },
     { label: t('개인 정보', 'Personal'), icon: <UserRound size={16} /> },
     { label: 'W-4', icon: <FileCheck2 size={16} /> },
     { label: 'I-9', icon: <IdCard size={16} /> },
@@ -222,7 +237,11 @@ export default function EmployeeForm() {
   const errors = useMemo(() => {
     const e: Record<string, string> = {}
     if (step === 0) {
-      if (!d.name.trim()) e.name = t('법적 이름을 입력하세요', 'Enter the legal name')
+      if (!d.lastName.trim()) e.lastName = t('성(Last name)을 입력하세요', 'Enter the last name')
+      if (!d.firstName.trim()) e.firstName = t('이름(First name)을 입력하세요', 'Enter the first name')
+      if (d.middleInitial.trim() && !/^[A-Za-z]\.?$/.test(d.middleInitial.trim())) e.middleInitial = t('영문 한 글자', 'One letter')
+      if (d.role === 'other' && !d.jobTitle.trim()) e.jobTitle = t('직함을 입력하세요', 'Enter a job title')
+      if (d.payType === 'tipped' && !company.tipsEnabled) e.rate = t('이 회사는 팁 기능이 꺼져 있어요', 'Tips are turned off for this company')
       if (!(num(d.rate) > 0)) e.rate = t('0보다 큰 금액을 입력하세요', 'Enter an amount above 0')
       if (!d.hireDate) e.hireDate = t('입사일을 입력하세요', 'Enter the hire date')
       const p = num(d.pretax)
@@ -256,7 +275,7 @@ export default function EmployeeForm() {
       }
     }
     return e
-  }, [d, step, t])
+  }, [d, step, t, company.tipsEnabled])
 
   const valid = Object.keys(errors).length === 0
   const err = (k: string) => (showErrors ? errors[k] : undefined)
@@ -280,8 +299,8 @@ export default function EmployeeForm() {
   const preview = useMemo(() => {
     const emp = toEmployee(d, d.id ?? newId)
     if (!(emp.rate > 0)) return null
-    return calculatePayroll({ employee: emp, payFrequency: companySchedule.frequency, time: restaurantRoles[d.role].defaultTime })
-  }, [d, newId])
+    return calculatePayroll({ employee: emp, payFrequency: companySchedule.frequency, time: defaultTimeFor(d.role, company.tipsEnabled), sutaRate: company.sutaRate })
+  }, [d, newId, company.tipsEnabled, company.sutaRate])
 
   const save = () => {
     upsertEmployee(toEmployee(d, d.id ?? newId), session?.name ?? company.ownerName)
@@ -293,12 +312,12 @@ export default function EmployeeForm() {
 
   const applyW4 = (x: W4Extract, fileName: string) => {
     const labels = [
-      x.name && t('이름', 'Name'), x.ssn && 'SSN', (x.street || x.city) && t('주소', 'Address'), x.filingStatus && t('신고 상태', 'Filing status'),
+      (x.firstName || x.lastName) && t('이름', 'Name'), x.ssn && 'SSN', (x.street || x.city) && t('주소', 'Address'), x.filingStatus && t('신고 상태', 'Filing status'),
       x.multipleJobs !== undefined && 'Step 2', x.dependents && t('부양가족', 'Dependents'), (x.otherIncome || x.deductions || x.extraWithholding) && 'Step 4',
     ].filter(Boolean) as string[]
     setD((p) => ({
       ...p,
-      name: x.name ?? p.name, ssn: x.ssn ?? p.ssn, street: x.street ?? p.street, city: x.city ?? p.city, state: x.state ?? p.state, zip: x.zip ?? p.zip,
+      firstName: x.firstName ?? p.firstName, lastName: x.lastName ?? p.lastName, middleInitial: x.middleInitial ?? p.middleInitial, ssn: x.ssn ?? p.ssn, street: x.street ?? p.street, city: x.city ?? p.city, state: x.state ?? p.state, zip: x.zip ?? p.zip,
       w4Received: true, filingStatus: x.filingStatus ?? p.filingStatus, multipleJobs: x.multipleJobs ?? p.multipleJobs,
       dependents: x.dependents ?? p.dependents, otherIncome: x.otherIncome ?? p.otherIncome, deductions: x.deductions ?? p.deductions,
       extraWithholding: x.extraWithholding ?? p.extraWithholding, exempt: x.exempt ?? p.exempt,
@@ -309,12 +328,12 @@ export default function EmployeeForm() {
 
   const applyI9 = (x: I9Extract, fileName: string) => {
     const labels = [
-      x.name && t('이름', 'Name'), x.ssn && 'SSN', x.dob && t('생년월일', 'DOB'), (x.street || x.city) && t('주소', 'Address'),
+      (x.firstName || x.lastName) && t('이름', 'Name'), x.ssn && 'SSN', x.dob && t('생년월일', 'DOB'), (x.street || x.city) && t('주소', 'Address'),
       x.email && t('이메일', 'Email'), x.phone && t('전화', 'Phone'), x.citizenship && t('시민권 상태', 'Status'), x.uscis && 'A-Number', x.workAuthExpires && t('허가 만료일', 'Auth expiry'),
     ].filter(Boolean) as string[]
     setD((p) => ({
       ...p,
-      name: p.name || x.name || '', ssn: p.ssn || x.ssn || '', dob: x.dob ?? p.dob, email: x.email ?? p.email, phone: x.phone ?? p.phone,
+      firstName: p.firstName || x.firstName || '', lastName: p.lastName || x.lastName || '', middleInitial: p.middleInitial || x.middleInitial || '', ssn: p.ssn || x.ssn || '', dob: x.dob ?? p.dob, email: x.email ?? p.email, phone: x.phone ?? p.phone,
       street: p.street || x.street || '', city: x.city ?? p.city, state: x.state ?? p.state, zip: x.zip ?? p.zip,
       citizenship: x.citizenship ?? p.citizenship, uscis: x.uscis ?? p.uscis, workAuthExpires: x.workAuthExpires ?? p.workAuthExpires,
       section1Date: p.section1Date || p.hireDate,
@@ -324,9 +343,12 @@ export default function EmployeeForm() {
   }
 
   const pickRole = (role: RoleId) => {
-    const tpl = restaurantRoles[role]
+    const tpl = roleTemplate(role)
     setD((p) => ({ ...p, role, payType: tpl.payType, rate: String(tpl.rate) }))
   }
+  const profile = industries[company.industry]
+  const roles = rolesFor(company)
+  const name = fullName({ firstName: d.firstName.trim(), lastName: d.lastName.trim(), middleInitial: d.middleInitial.trim().toUpperCase() })
 
   const rateWarning =
     d.payType === 'tipped' && num(d.rate) < cfg.tippedCashWage
@@ -342,8 +364,10 @@ export default function EmployeeForm() {
         <Link to="/employees" className="back-link">
           <ArrowLeft size={16} aria-hidden /> {t('직원 목록', 'People')}
         </Link>
-        <h1>{d.id ? t(`${d.name || '직원'} 정보 수정`, `Edit ${d.name || 'employee'}`) : t('새 직원 등록', 'New hire')}</h1>
-        <p className="lead">{t('레스토랑 직무를 고르면 급여 형태와 시급이 자동으로 채워집니다. W-4와 I-9 핵심 항목도 함께 받아 두세요.', 'Pick a restaurant role to prefill pay. Capture the key W-4 and I-9 details as you go.')}</p>
+        <h1>{d.id ? t(`${name || '직원'} 정보 수정`, `Edit ${name || 'employee'}`) : t('새 직원 등록', 'New hire')}</h1>
+        <p className="lead">
+          {t(`${profile.ko} 직무를 고르면 급여 형태와 시급이 자동으로 채워집니다. W-4와 I-9 핵심 항목도 함께 받아 두세요.`, `Pick a ${profile.en.toLowerCase()} role to prefill pay. Capture the key W-4 and I-9 details as you go.`)}
+        </p>
       </header>
 
       <ol className="steps steps-5">
@@ -369,28 +393,51 @@ export default function EmployeeForm() {
                   <small className="muted">{t('각 단계에서 값을 확인하고, 틀린 곳은 고쳐 주세요.', 'Check each value in the steps ahead and fix anything wrong.')}</small>
                 </div>
               )}
-              <h2>{t('직무 템플릿', 'Role template')}</h2>
+              <h2>{t('법적 이름', 'Legal name')}</h2>
+              <p className="muted small">{t('W-4 Step 1(a)와 I-9 Section 1에 적힌 그대로 성과 이름을 따로 입력하세요. W-2와 세금 신고에 이 이름이 쓰입니다.', 'Enter the last and first name exactly as on the W-4 Step 1(a) and I-9 Section 1. This name goes on the W-2 and tax filings.')}</p>
+              <div className="form-grid name-grid">
+                <Field label={t('성 (Last name)', 'Last name')} error={err('lastName')}>
+                  <input value={d.lastName} onChange={(e) => set('lastName', e.target.value)} placeholder="Yoon" autoComplete="family-name" autoFocus />
+                </Field>
+                <Field label={t('이름 (First name)', 'First name')} error={err('firstName')}>
+                  <input value={d.firstName} onChange={(e) => set('firstName', e.target.value)} placeholder="Jamie" autoComplete="given-name" />
+                </Field>
+                <Field label={t('미들 이니셜', 'Middle initial')} error={err('middleInitial')} hint={t('선택', 'Optional')}>
+                  <input value={d.middleInitial} maxLength={2} onChange={(e) => set('middleInitial', e.target.value)} placeholder="K" />
+                </Field>
+              </div>
+              {(d.lastName || d.firstName) && (
+                <p className="muted small name-preview">
+                  {t('서류 표기', 'On forms')}: <strong>{sortName({ firstName: d.firstName.trim(), lastName: d.lastName.trim(), middleInitial: d.middleInitial.trim().toUpperCase() })}</strong>
+                </p>
+              )}
+
+              <h2>
+                {t('직무 템플릿', 'Role template')}
+                <span className="tag neutral industry-tag">{industryLabel(company.industry, t)}</span>
+              </h2>
               <div className="role-grid">
-                {roleOrder.map((r) => {
-                  const tpl = restaurantRoles[r]
-                  return (
-                    <button type="button" key={r} className={`role-card${d.role === r ? ' on' : ''}`} onClick={() => pickRole(r)}>
-                      <strong>{roleLabel(r, t)}</strong>
-                      <span className="muted small">{payLabel(tpl, t)}</span>
-                    </button>
-                  )
-                })}
+                {roles.map((tpl) => (
+                  <button type="button" key={tpl.id} className={`role-card${d.role === tpl.id ? ' on' : ''}`} onClick={() => pickRole(tpl.id)}>
+                    <strong>{roleLabel(tpl.id, t)}</strong>
+                    <span className="muted small">{tpl.id === 'other' ? t('직함 직접 입력', 'Custom title') : payLabel(tpl, t)}</span>
+                  </button>
+                ))}
               </div>
               <div className="form-grid">
-                <Field label={t('법적 이름 (I-9 / W-4와 동일)', 'Legal name (as on I-9 / W-4)')} error={err('name')} wide>
-                  <input value={d.name} onChange={(e) => set('name', e.target.value)} placeholder="Jamie Yoon" autoFocus />
+                <Field
+                  label={d.role === 'other' ? t('직함', 'Job title') : t('직함 (선택)', 'Job title (optional)')}
+                  error={err('jobTitle')}
+                  hint={d.role === 'other' ? undefined : t(`비워 두면 "${roleLabel(d.role, t)}"로 표시`, `Shown as "${roleLabel(d.role, t)}" if blank`)}
+                >
+                  <input value={d.jobTitle} onChange={(e) => set('jobTitle', e.target.value)} placeholder={d.role === 'other' ? t('예: Lab technician', 'e.g. Lab technician') : roleTemplate(d.role).en} />
                 </Field>
-                <Field label={t('급여 형태', 'Pay type')}>
+                <Field label={t('급여 형태', 'Pay type')} hint={company.tipsEnabled ? undefined : t('이 회사는 팁 기능을 쓰지 않아요 (회사 정보에서 변경)', 'Tips are off for this company (change in Company)')}>
                   <Segmented<PayType>
                     value={d.payType}
                     onChange={(v) => set('payType', v)}
                     options={[
-                      { value: 'tipped', label: t('팁 직원', 'Tipped') },
+                      ...(company.tipsEnabled || d.payType === 'tipped' ? [{ value: 'tipped' as const, label: t('팁 직원', 'Tipped') }] : []),
                       { value: 'hourly', label: t('시급', 'Hourly') },
                       { value: 'salary', label: t('연봉', 'Salary') },
                     ]}
@@ -661,8 +708,8 @@ export default function EmployeeForm() {
             <>
               <h2>{t('입력 내용 확인', 'Review')}</h2>
               <dl className="review-list">
-                <div><dt>{t('이름', 'Name')}</dt><dd>{d.name}</dd></div>
-                <div><dt>{t('직무', 'Role')}</dt><dd>{roleLabel(d.role, t)} · {payLabel({ payType: d.payType, rate: num(d.rate) }, t)}</dd></div>
+                <div><dt>{t('성 / 이름', 'Last / First')}</dt><dd>{d.lastName} / {d.firstName}{d.middleInitial ? ` ${d.middleInitial.replace(/\.$/, '').toUpperCase()}.` : ''}</dd></div>
+                <div><dt>{t('직무', 'Role')}</dt><dd>{jobLabel(d, t)} · {payLabel({ payType: d.payType, rate: num(d.rate) }, t)}</dd></div>
                 <div><dt>{t('입사일', 'Hire date')}</dt><dd>{d.hireDate}</dd></div>
                 <div><dt>SSN</dt><dd>{maskSsn(d.ssn ? keepLast4(d.ssn) : d.ssnLast4Existing)}</dd></div>
                 <div><dt>{t('주소', 'Address')}</dt><dd>{[d.street, d.city, d.state, d.zip].filter(Boolean).join(', ') || '—'}</dd></div>
@@ -722,14 +769,14 @@ export default function EmployeeForm() {
                 {d.payType === 'salary'
                   ? t('격주 급여 입금액', 'Biweekly paycheck')
                   : t(
-                      `${roleLabel(d.role, t)} 평균 2주 (${preview.hours}h${preview.cashTips + preview.cardTips ? `, 팁 ${formatCurrencyWhole(preview.cashTips + preview.cardTips)}` : ''}) 기준 입금액`,
-                      `Typical 2 weeks as ${roleLabel(d.role, t)} (${preview.hours}h${preview.cashTips + preview.cardTips ? `, ${formatCurrencyWhole(preview.cashTips + preview.cardTips)} tips` : ''})`,
+                      `${jobLabel(d, t)} 평균 2주 (${preview.hours}h${preview.cashTips + preview.cardTips ? `, 팁 ${formatCurrencyWhole(preview.cashTips + preview.cardTips)}` : ''}) 기준 입금액`,
+                      `Typical 2 weeks as ${jobLabel(d, t)} (${preview.hours}h${preview.cashTips + preview.cardTips ? `, ${formatCurrencyWhole(preview.cashTips + preview.cardTips)} tips` : ''})`,
                     )}
               </p>
               <BreakdownBar segments={segmentsOf(preview)} legend={false} />
               <dl className="preview-list">
                 <div><dt>{t('총급여', 'Gross')}</dt><dd>{formatCurrency(preview.grossPay)}</dd></div>
-                {preview.hours > 0 && <div><dt>{t('팁 포함 시간당', 'Effective /h')}</dt><dd>{formatCurrency(preview.grossPay / preview.hours)}</dd></div>}
+                {preview.hours > 0 && <div><dt>{preview.cashTips + preview.cardTips > 0 ? t('팁 포함 시간당', 'Effective /h') : t('시간당 총급여', 'Gross /h')}</dt><dd>{formatCurrency(preview.grossPay / preview.hours)}</dd></div>}
                 <div><dt>{t('연방 소득세', 'Federal tax')}</dt><dd>−{formatCurrency(preview.federalWithholding)}</dd></div>
                 <div><dt>FICA</dt><dd>−{formatCurrency(preview.socialSecurity + preview.medicare)}</dd></div>
                 <div><dt>{t('텍사스 주세', 'Texas tax')}</dt><dd>$0.00</dd></div>

@@ -10,10 +10,10 @@ import PayStub from '../components/PayStub'
 import PayrollReview from '../components/PayrollReview'
 import { StatusBadge, StatusTimeline } from '../components/RunStatus'
 import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
-import { defaultTimeFor, receivesTips } from '../config/restaurantRoles'
+import { defaultTimeFor, receivesTips } from '../config/industries'
 import type { Check as CheckItem } from '../lib/checks'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
-import { roleLabel } from '../lib/labels'
+import { jobLabel } from '../lib/labels'
 import { baseRateForEntry, effectiveEmployee, sumResults, tippedOvertimeRate } from '../lib/payroll'
 import { cashOutOf, timeLeft } from '../lib/runStatus'
 import { parseISODate, previousPayDate } from '../lib/schedule'
@@ -22,6 +22,7 @@ import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
 import type { Employee, TimeEntry } from '../types'
+import { compareByName, fullName } from '../lib/names'
 
 const PERIODS = periodsPerYear[companySchedule.frequency]
 
@@ -71,7 +72,7 @@ function RateInputCell({ e, entry, row, onChange, onSaveDefault }: {
         <span aria-hidden>$</span>
         <input
           type="number" inputMode="decimal" min={0} step="0.01" value={value}
-          aria-label={`${e.name} ${salary ? t('회당 급여', 'pay per check') : t('시급', 'hourly rate')}`}
+          aria-label={`${fullName(e)} ${salary ? t('회당 급여', 'pay per check') : t('시급', 'hourly rate')}`}
           data-cell={`${row}-rate`}
           onFocus={(ev) => ev.target.select()}
           onKeyDown={(ev) => {
@@ -120,6 +121,8 @@ export default function PayrollRun() {
   const [importOpen, setImportOpen] = useState(false)
   const [now] = useState(() => new Date())
   const me = session?.name ?? company.ownerName
+  /** 팁 기능을 쓰는 회사이거나, 이번 회차에 팁이 이미 입력된 경우 팁 칸을 보여 줌 */
+  const tipsOn = company.tipsEnabled || employees.some((e) => e.active && ((time[e.id]?.cashTips ?? 0) + (time[e.id]?.cardTips ?? 0) > 0))
 
   const active = employees.filter((e) => e.active)
   const pay = parseISODate(payDate)
@@ -144,8 +147,8 @@ export default function PayrollRun() {
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
     return [...active]
-      .sort((a, b) => Number(a.payType === 'salary') - Number(b.payType === 'salary'))
-      .filter((e) => !q || `${e.name} ${roleLabel(e.role, t)}`.toLowerCase().includes(q))
+      .sort((a, b) => Number(a.payType === 'salary') - Number(b.payType === 'salary') || compareByName(a, b))
+      .filter((e) => !q || `${fullName(e)} ${jobLabel(e, t)}`.toLowerCase().includes(q))
   }, [active, query, t])
 
   const applyAll = (fn: (e: Employee) => TimeEntry | undefined) => {
@@ -239,7 +242,7 @@ export default function PayrollRun() {
               const e = view.employees.find((x) => x.id === r.employeeId)!
               return (
                 <div key={r.employeeId} className="print-stub">
-                  <h2>{e.name} · {formatDate(pay, locale)}</h2>
+                  <h2>{fullName(e)} · {formatDate(pay, locale)}</h2>
                   <PayStub employee={e} result={r} time={view.time[e.id]} />
                 </div>
               )
@@ -289,7 +292,7 @@ export default function PayrollRun() {
               </button>
               <span className="muted small">{t('모두 적용:', 'Apply to all:')}</span>
               {lastRun && <button className="chip" onClick={() => applyAll((e) => lastRun.time[e.id])}>{t('지난번과 동일', 'Same as last')}</button>}
-              <button className="chip" onClick={() => applyAll((e) => defaultTimeFor(e.role))}>{t('직무 기본값', 'Role defaults')}</button>
+              <button className="chip" onClick={() => applyAll((e) => defaultTimeFor(e.role, tipsOn))}>{t('직무 기본값', 'Role defaults')}</button>
               <button className="chip" onClick={() => applyAll(() => ({ regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }))}>
                 <RotateCcw size={13} aria-hidden /> {t('비우기', 'Clear')}
               </button>
@@ -304,8 +307,8 @@ export default function PayrollRun() {
                   <th className="num">{t('시급 / 회당 급여', 'Rate / per check')}</th>
                   <th className="num">{t('정규 시간', 'Regular hrs')}</th>
                   <th className="num">{t('OT 시간', 'OT hrs')}</th>
-                  <th className="num">{t('현금 팁', 'Cash tips')}</th>
-                  <th className="num">{t('카드 팁', 'Card tips')}</th>
+                  {tipsOn && <th className="num">{t('현금 팁', 'Cash tips')}</th>}
+                  {tipsOn && <th className="num">{t('카드 팁', 'Card tips')}</th>}
                   <th className="num">Fringe</th>
                   <th className="num">{t('총급여', 'Gross pay')}</th>
                   <th aria-label={t('상세', 'Details')} />
@@ -316,7 +319,7 @@ export default function PayrollRun() {
                   const r = resultOf(e.id)
                   const h = time[e.id] ?? { regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }
                   const salary = e.payType === 'salary'
-                  const tips = !salary && (receivesTips(e.role) || h.cashTips + h.cardTips > 0)
+                  const tips = !salary && (receivesTips(e.role, tipsOn) || h.cashTips + h.cardTips > 0)
                   const issues = checksByEmployee.get(e.id) ?? []
                   const worst = issues[0]?.severity
                   const isOpen = open === e.id
@@ -326,29 +329,29 @@ export default function PayrollRun() {
                       <tr className={isOpen ? 'open' : ''}>
                         <td data-label={t('직원', 'Employee')}>
                           <div className="emp-cell">
-                            <span className="avatar sm">{initials(e.name)}</span>
+                            <span className="avatar sm">{initials(fullName(e))}</span>
                             <div>
                               <strong>
-                                {e.name}
+                                {fullName(e)}
                                 {worst && worst !== 'info' && <span className={`flag ${worst}`} title={lang === 'ko' ? issues[0].ko : issues[0].en}>{sevIcon[worst]}</span>}
                               </strong>
-                              <span className="muted small">{roleLabel(e.role, t)}</span>
+                              <span className="muted small">{jobLabel(e, t)}</span>
                             </div>
                           </div>
                         </td>
                         <RateInputCell e={e} entry={time[e.id]} row={rows.indexOf(e)} onChange={(rate) => setTime(e.id, { rate })} onSaveDefault={() => saveRateAsDefault(e)} />
                         <td className="num" data-label={t('정규 시간', 'Regular hrs')}>
-                          <CellInput row={ri} col={0} disabled={salary} label={`${e.name} ${t('정규 시간', 'regular hours')}`} value={h.regular} onChange={(v) => setTime(e.id, { regular: v })} />
+                          <CellInput row={ri} col={0} disabled={salary} label={`${fullName(e)} ${t('정규 시간', 'regular hours')}`} value={h.regular} onChange={(v) => setTime(e.id, { regular: v })} />
                         </td>
                         <td className="num" data-label={t('OT 시간', 'OT hrs')}>
-                          <CellInput row={ri} col={1} disabled={salary} label={`${e.name} OT`} value={h.overtime} onChange={(v) => setTime(e.id, { overtime: v })} />
+                          <CellInput row={ri} col={1} disabled={salary} label={`${fullName(e)} OT`} value={h.overtime} onChange={(v) => setTime(e.id, { overtime: v })} />
                         </td>
-                        <td className="num" data-label={t('현금 팁', 'Cash tips')}>
-                          <CellInput row={ri} col={2} money disabled={!tips} label={`${e.name} ${t('현금 팁', 'cash tips')}`} value={h.cashTips} onChange={(v) => setTime(e.id, { cashTips: v })} />
-                        </td>
-                        <td className="num" data-label={t('카드 팁', 'Card tips')}>
-                          <CellInput row={ri} col={3} money disabled={!tips} label={`${e.name} ${t('카드 팁', 'card tips')}`} value={h.cardTips} onChange={(v) => setTime(e.id, { cardTips: v })} />
-                        </td>
+                        {tipsOn && <td className="num" data-label={t('현금 팁', 'Cash tips')}>
+                          <CellInput row={ri} col={2} money disabled={!tips} label={`${fullName(e)} ${t('현금 팁', 'cash tips')}`} value={h.cashTips} onChange={(v) => setTime(e.id, { cashTips: v })} />
+                        </td>}
+                        {tipsOn && <td className="num" data-label={t('카드 팁', 'Card tips')}>
+                          <CellInput row={ri} col={3} money disabled={!tips} label={`${fullName(e)} ${t('카드 팁', 'card tips')}`} value={h.cardTips} onChange={(v) => setTime(e.id, { cardTips: v })} />
+                        </td>}
                         <td className="num fringe-cell" data-label="Fringe">
                           <button type="button" className={`chip${r.fringeTotal ? ' on' : ''}`} onClick={() => setOpen(e.id)}>
                             {r.fringeTotal ? formatCurrency(r.fringeTotal) : t('+ 추가', '+ Add')}
@@ -366,12 +369,12 @@ export default function PayrollRun() {
                       </tr>
                       {isOpen && (
                         <tr className="detail-row">
-                          <td colSpan={9}>
+                          <td colSpan={tipsOn ? 9 : 7}>
                             <div className="row-detail">
                               <div className="row-detail-facts">
                                 {r.hours > 0 && (
                                   <span>
-                                    {t('팁 포함 시간당', 'Effective rate')}{' '}
+                                    {tipsOn ? t('팁 포함 시간당', 'Effective rate') : t('시간당 총급여', 'Gross per hour')}{' '}
                                     <strong className={r.grossPay / r.hours < cfg.minimumWage ? 'warn-text' : ''}>{formatCurrency(r.grossPay / r.hours)}</strong>
                                   </span>
                                 )}
@@ -383,7 +386,7 @@ export default function PayrollRun() {
                               <FringeEditor entries={h.fringes} onChange={(fringes) => setTime(e.id, { fringes })} />
                               {!salary && (
                                 <div className="chips">
-                                  <button className="chip" onClick={() => setTime(e.id, defaultTimeFor(e.role))}>{t('직무 기본값', 'Role default')}</button>
+                                  <button className="chip" onClick={() => setTime(e.id, defaultTimeFor(e.role, tipsOn))}>{t('직무 기본값', 'Role default')}</button>
                                   {lastRun?.time[e.id] && <button className="chip" onClick={() => setTime(e.id, lastRun.time[e.id])}>{t('지난번과 동일', 'Same as last')}</button>}
                                 </div>
                               )}
@@ -401,8 +404,8 @@ export default function PayrollRun() {
                   <td />
                   <td className="num">{active.reduce((a, e) => a + (time[e.id]?.regular ?? 0) * Number(e.payType !== 'salary'), 0)}</td>
                   <td className="num">{active.reduce((a, e) => a + (time[e.id]?.overtime ?? 0) * Number(e.payType !== 'salary'), 0)}</td>
-                  <td className="num">{formatCurrency(totals.cashTips)}</td>
-                  <td className="num">{formatCurrency(totals.cardTips)}</td>
+                  {tipsOn && <td className="num">{formatCurrency(totals.cashTips)}</td>}
+                  {tipsOn && <td className="num">{formatCurrency(totals.cardTips)}</td>}
                   <td className="num">{formatCurrency(totals.fringe)}</td>
                   <td className="num"><strong>{formatCurrency(totals.gross)}</strong></td>
                   <td />

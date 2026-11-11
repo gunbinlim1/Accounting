@@ -1231,3 +1231,32 @@ h1 .status-badge { margin-left: 0.5rem; font-size: 0.8rem; position: relative; t
   .print-stub { break-inside: avoid; margin-bottom: 2rem; }
   .card, .stub { box-shadow: none; }
 }
+
+/* ───────── 업종 선택 · 회사 포털 만들기 ───────── */
+.form-grid.name-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 8rem; }
+.name-preview { margin: -0.4rem 0 0; }
+.industry-tag { margin-left: 0.5rem; vertical-align: middle; font-size: 0.72rem; }
+.industry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+.industry-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; text-align: left;
+  padding: 1rem 1.05rem; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+}
+.industry-card:hover { border-color: var(--accent); }
+.industry-card.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-soft); }
+.industry-card .industry-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--surface); color: var(--accent); border: 1px solid var(--border); }
+.industry-card strong { font-size: 1.02rem; }
+.industry-card ul { margin: 0.25rem 0 0; padding-left: 1.1rem; font-size: 0.82rem; color: var(--text-2); display: flex; flex-direction: column; gap: 0.1rem; }
+.setup-page { max-width: 980px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+.setup-top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.role-preview { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
+.role-preview li { padding: 0.35rem 0.65rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); font-size: 0.84rem; }
+.role-preview li small { color: var(--muted); margin-left: 0.3rem; }
+.feature-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.45rem; }
+.feature-list li { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.92rem; }
+.feature-list li svg { flex: none; margin-top: 2px; }
+.feature-list li.off { color: var(--muted); }
+.feature-list li.on svg { color: var(--good); }
+@media (max-width: 760px) {
+  .industry-grid, .form-grid.name-grid { grid-template-columns: 1fr; }
+}
+.signup-link { width: 100%; margin-top: 0.6rem; justify-content: center; }

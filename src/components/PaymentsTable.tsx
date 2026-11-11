@@ -2,6 +2,7 @@ import { Banknote, Landmark, Mail, MailX, Printer } from 'lucide-react'
 import { formatCurrency, formatDate, initials } from '../lib/format'
 import { usePrefs } from '../prefs'
 import type { Employee, PaymentRecord, PayMethod } from '../types'
+import { fullName } from '../lib/names'
 
 export const payMethodLabel = (m: PayMethod, t: (ko: string, en: string) => string) =>
   ({ client_check: t('고객 수표', 'Client check'), firm_check: t('회계법인 인쇄 수표', 'CPA-printed check'), direct_deposit: t('직접입금', 'Direct deposit') })[m]
@@ -46,7 +47,7 @@ export default function PaymentsTable({ payments, employees, payDate }: { paymen
               return (
                 <tr key={p.employeeId}>
                   <td data-label={t('직원', 'Employee')}>
-                    <div className="emp-cell"><span className="avatar sm">{initials(e?.name ?? '?')}</span><div><strong>{e?.name}</strong><span className="muted small">{e?.email ?? t('이메일 없음', 'No email')}</span></div></div>
+                    <div className="emp-cell"><span className="avatar sm">{initials(e ? fullName(e) : '?')}</span><div><strong>{e && fullName(e)}</strong><span className="muted small">{e?.email ?? t('이메일 없음', 'No email')}</span></div></div>
                   </td>
                   <td data-label={t('지급 방식', 'Method')}><span className="method">{icon[p.method]} {payMethodLabel(p.method, t)}</span></td>
                   <td data-label={t('상태', 'Status')}><span className={`pill-dot ${p.status === 'ready_for_client' ? 'warn' : 'good'}`}>{status(p)}</span></td>

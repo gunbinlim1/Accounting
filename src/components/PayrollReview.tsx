@@ -3,13 +3,14 @@ import { Fragment, useState } from 'react'
 import { companySchedule, periodsPerYear } from '../config/payrollConfig'
 import type { Check } from '../lib/checks'
 import { formatCurrency, formatCurrencyWhole, initials } from '../lib/format'
-import { roleLabel } from '../lib/labels'
+import { jobLabel } from '../lib/labels'
 import { effectiveEmployee, sumResults } from '../lib/payroll'
 import { usePrefs } from '../prefs'
 import type { RunView } from '../store'
 import type { Employee, TimeEntry } from '../types'
 import CheckList from './CheckList'
 import PayStub from './PayStub'
+import { compareByName, fullName } from '../lib/names'
 
 const PERIODS = periodsPerYear[companySchedule.frequency]
 
@@ -47,7 +48,9 @@ export default function PayrollReview({ view, checks }: { view: RunView; checks:
   const blocking = checks.filter((c) => c.severity === 'critical').length
   const issueCount = checks.filter((c) => c.severity !== 'info').length
   const showAlerts = alertsPref ?? (blocking > 0 || typeof matchMedia === 'undefined' || matchMedia('(min-width: 761px)').matches)
-  const people = view.employees.filter((e) => view.results.some((r) => r.employeeId === e.id))
+  const people = view.employees.filter((e) => view.results.some((r) => r.employeeId === e.id)).sort(compareByName)
+  const anyTips = totals.cashTips + totals.cardTips > 0
+  const dedLabel = anyTips ? t('공제·현금 팁', 'Deductions & cash tips') : t('세전 공제', 'Pre-tax deductions')
 
   return (
     <>
@@ -81,10 +84,12 @@ export default function PayrollReview({ view, checks }: { view: RunView; checks:
       </section>
 
       <section className="stat-strip">
-        <div><span>{t('총급여 (팁 포함)', 'Gross pay')}</span><strong>{formatCurrency(totals.gross)}</strong></div>
+        <div><span>{anyTips ? t('총급여 (팁 포함)', 'Gross pay') : t('총급여', 'Gross pay')}</span><strong>{formatCurrency(totals.gross)}</strong></div>
         <div><span>{t('직원 세금·공제', 'Employee taxes & deductions')}</span><strong>{formatCurrency(totals.federal + totals.socialSecurity + totals.medicare + totals.pretax)}</strong></div>
         <div><span>{t('회사 세금', 'Employer taxes')}</span><strong>{formatCurrency(totals.employerTaxes)}</strong></div>
-        <div><span>{t('현금 팁 (이미 지급됨)', 'Cash tips (already paid)')}</span><strong>{formatCurrency(totals.cashTips)}</strong></div>
+        {anyTips
+          ? <div><span>{t('현금 팁 (이미 지급됨)', 'Cash tips (already paid)')}</span><strong>{formatCurrency(totals.cashTips)}</strong></div>
+          : <div><span>Fringe Benefit</span><strong>{formatCurrency(totals.fringe)}</strong></div>}
       </section>
 
       <section className="card table-card">
@@ -100,7 +105,7 @@ export default function PayrollReview({ view, checks }: { view: RunView; checks:
                 <th className="num">{t('급여 기준', 'Pay rate')}</th>
                 <th className="num">{t('총급여', 'Gross')}</th>
                 <th className="num">{t('직원 세금', 'Employee taxes')}</th>
-                <th className="num">{t('공제·현금 팁', 'Deductions & cash tips')}</th>
+                <th className="num">{dedLabel}</th>
                 <th className="num">{t('입금액', 'Net pay')}</th>
                 <th className="num">{t('회사 세금', 'Employer taxes')}</th>
                 <th aria-label={t('상세', 'Details')} />
@@ -115,17 +120,17 @@ export default function PayrollReview({ view, checks }: { view: RunView; checks:
                     <tr className={`clickable${isOpen ? ' open' : ''}`} onClick={() => setOpen(isOpen ? null : e.id)}>
                       <td data-label={t('직원', 'Employee')}>
                         <div className="emp-cell">
-                          <span className="avatar sm">{initials(e.name)}</span>
+                          <span className="avatar sm">{initials(fullName(e))}</span>
                           <div>
-                            <strong>{e.name}</strong>
-                            <span className="muted small">{roleLabel(e.role, t)}</span>
+                            <strong>{fullName(e)}</strong>
+                            <span className="muted small">{jobLabel(e, t)}</span>
                           </div>
                         </div>
                       </td>
                       <RateCell e={e} entry={view.time[e.id]} />
                       <td className="num" data-label={t('총급여', 'Gross')}>{formatCurrency(r.grossPay)}</td>
                       <td className="num" data-label={t('직원 세금', 'Employee taxes')}>{formatCurrency(r.federalWithholding + r.socialSecurity + r.medicare)}</td>
-                      <td className="num" data-label={t('공제·현금 팁', 'Deductions & cash tips')}>{formatCurrency(r.pretaxDeductions + r.cashTips)}</td>
+                      <td className="num" data-label={dedLabel}>{formatCurrency(r.pretaxDeductions + r.cashTips)}</td>
                       <td className="num" data-label={t('입금액', 'Net pay')}><strong>{formatCurrency(r.netPay)}</strong></td>
                       <td className="num muted" data-label={t('회사 세금', 'Employer taxes')}>{formatCurrency(r.employerTaxes)}</td>
                       <td className="expand-cell"><ChevronDown size={18} className="chev" aria-hidden /></td>

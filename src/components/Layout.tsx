@@ -9,6 +9,7 @@ import { currentPayDate, usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { CompanyProvider, useStore } from '../store'
 import CommandPalette, { type Command } from './CommandPalette'
+import { fullName } from '../lib/names'
 
 interface NavItem {
   to: string
@@ -120,7 +121,7 @@ function Shell({ nav, identity, extraNav, commands, mobileTitle }: {
   )
 }
 
-/* ───────── 고객 (레스토랑) ───────── */
+/* ───────── 고객사 ───────── */
 
 function ClientShell() {
   const { t } = usePrefs()
@@ -142,7 +143,7 @@ function ClientShell() {
     () => [
       ...nav.map((n) => ({ id: `go-${n.to}`, label: n.label, hint: t('이동', 'Go to'), icon: n.icon, run: () => navigate(n.to) })),
       { id: 'add', label: t('직원 등록 (W-4·I-9)', 'Add employee (W-4, I-9)'), icon: <UserPlus size={18} />, keywords: 'new hire', run: () => navigate('/employees/new') },
-      ...employees.map((e) => ({ id: `emp-${e.id}`, label: e.name, hint: t('직원 정보', 'Profile'), icon: <Users size={18} />, keywords: `${e.role} ${e.id}`, run: () => navigate(`/employees/${e.id}`) })),
+      ...employees.map((e) => ({ id: `emp-${e.id}`, label: fullName(e), hint: t('직원 정보', 'Profile'), icon: <Users size={18} />, keywords: `${e.role} ${e.id}`, run: () => navigate(`/employees/${e.id}`) })),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [employees, t],

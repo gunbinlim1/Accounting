@@ -6,12 +6,13 @@ import PayStub from '../components/PayStub'
 import W2Preview from '../components/W2Preview'
 import { companySchedule } from '../config/payrollConfig'
 import { formatCurrency, formatDate } from '../lib/format'
-import { filingLabel, roleLabel } from '../lib/labels'
+import { filingLabel, jobLabel } from '../lib/labels'
 import { effectiveEmployee } from '../lib/payroll'
 import { w2For } from '../lib/taxes'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { CompanyProvider, useStore } from '../store'
+import { fullName } from '../lib/names'
 
 function Portal({ employeeId }: { employeeId: string }) {
   const { t, locale, lang, toggleLang } = usePrefs()
@@ -37,8 +38,8 @@ function Portal({ employeeId }: { employeeId: string }) {
       </header>
       <main className="page">
         <header className="page-head">
-          <p className="eyebrow">{company.dba} · {roleLabel(me.role, t)}</p>
-          <h1>{t(`${me.name.split(' ')[0]}님, 안녕하세요`, `Hi, ${me.name.split(' ')[0]}`)}</h1>
+          <p className="eyebrow">{company.dba} · {jobLabel(me, t)}</p>
+          <h1>{t(`${fullName(me).split(' ')[0]}님, 안녕하세요`, `Hi, ${fullName(me).split(' ')[0]}`)}</h1>
         </header>
 
         {!me.eConsent && (

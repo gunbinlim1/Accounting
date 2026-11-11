@@ -1,10 +1,12 @@
-import { ArrowLeft, ArrowRight, Building2, KeyRound, Languages, Lock, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Building2, KeyRound, Languages, Lock, Plus, ShieldCheck } from 'lucide-react'
 import { useRef, useState, type FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { firmAccount } from '../data/demoPortal'
+import { industryLabel } from '../lib/labels'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import type { Session } from '../types'
+import { fullName } from '../lib/names'
 
 /**
  * 데모 로그인: 이메일·비밀번호 → 인증 코드(MFA) → 포털.
@@ -30,7 +32,7 @@ export default function Login() {
     if (c) return { role: 'client', companyId: c.company.id, name: c.company.ownerName, email: e }
     for (const co of companies) {
       const emp = co.employees.find((x) => x.email?.toLowerCase() === e && x.active)
-      if (emp) return { role: 'employee', companyId: co.company.id, employeeId: emp.id, name: emp.name, email: e }
+      if (emp) return { role: 'employee', companyId: co.company.id, employeeId: emp.id, name: fullName(emp), email: e }
     }
     return null
   }
@@ -88,10 +90,10 @@ export default function Login() {
         </div>
         <div className="login-pitch">
           <h1>{t('급여 자료, 이제 포털로 보내 주세요', 'Send payroll to your CPA in minutes')}</h1>
-          <p>{t('근무시간과 팁만 입력하면 세금 계산부터 확인까지 끝. 회계법인이 검토해서 처리해 드립니다.', 'Enter hours and tips; we calculate, check, and your CPA reviews and processes it.')}</p>
+          <p>{t('근무시간(팁이 있으면 팁까지)만 입력하면 세금 계산부터 확인까지 끝. 회계법인이 검토해서 처리해 드립니다.', 'Enter hours (and tips, if you have them); we calculate, check, and your CPA reviews and processes it.')}</p>
           <ul>
             <li><ShieldCheck size={18} aria-hidden /> {t('2단계 인증과 암호화로 직원 정보 보호', 'Two-step sign-in and encryption protect employee data')}</li>
-            <li><Building2 size={18} aria-hidden /> {t('텍사스 레스토랑 급여·팁·W-4·I-9 지원', 'Built for Texas restaurants: tips, W-4, I-9')}</li>
+            <li><Building2 size={18} aria-hidden /> {t('레스토랑·서비스업·도소매업·제조업 — 업종에 맞춘 텍사스 급여', 'Texas payroll fitted to your industry: restaurants, services, retail, manufacturing')}</li>
             <li><KeyRound size={18} aria-hidden /> {t('제출하면 잠기고 모든 변경이 기록됨', 'Submissions lock and every change is logged')}</li>
           </ul>
         </div>
@@ -108,7 +110,7 @@ export default function Login() {
               <form onSubmit={submit} className="login-form">
                 <label className="field">
                   <span>{t('이메일', 'Email')}</span>
-                  <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@restaurant.com" autoFocus />
+                  <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoFocus />
                 </label>
                 <label className="field">
                   <span>{t('비밀번호', 'Password')}</span>
@@ -117,6 +119,7 @@ export default function Login() {
                 {error && <p className="error-text">{error}</p>}
                 <button className="btn primary lg" type="submit">{t('계속', 'Continue')} <ArrowRight size={18} aria-hidden /></button>
               </form>
+              <Link to="/signup" className="btn lg signup-link"><Plus size={18} aria-hidden /> {t('새 회사 급여 포털 만들기', 'Set up a new company portal')}</Link>
 
               <div className="demo-accounts">
                 <span className="side-label">{t('데모 계정으로 둘러보기', 'Explore with a demo account')}</span>
@@ -125,7 +128,7 @@ export default function Login() {
                     <span className="identity-logo sm">{c.company.dba.split(' ').map((w) => w[0]).slice(0, 2).join('')}</span>
                     <span>
                       <strong>{c.company.dba}</strong>
-                      <small>{c.company.ownerName} · {t('고객 (레스토랑 대표)', 'Client (owner)')}</small>
+                      <small>{c.company.ownerName} · {t('고객 대표', 'Client owner')} · {industryLabel(c.company.industry, t)}</small>
                     </span>
                     <ArrowRight size={16} aria-hidden />
                   </button>

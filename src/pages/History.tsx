@@ -5,11 +5,12 @@ import PayStub from '../components/PayStub'
 import { companySchedule } from '../config/payrollConfig'
 import { downloadCsv } from '../lib/csv'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
-import { roleLabel } from '../lib/labels'
+import { jobLabel } from '../lib/labels'
 import { effectiveEmployee, sumResults } from '../lib/payroll'
 import { quarterOf } from '../lib/taxes'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
+import { fullName } from '../lib/names'
 
 /** 급여 내역: 회차별·직원별·연간 누계를 한눈에 */
 export default function History() {
@@ -23,7 +24,10 @@ export default function History() {
 
   const yearRuns = useMemo(() => runs.filter((r) => r.payDate.startsWith(year)).sort((a, b) => b.payDate.localeCompare(a.payDate)), [runs, year])
   const all = sumResults(yearRuns.flatMap((r) => r.results))
-  const empName = (id: string) => employees.find((e) => e.id === id)?.name ?? id
+  const empName = (id: string) => {
+    const e = employees.find((x) => x.id === id)
+    return e ? fullName(e) : id
+  }
   const d = (iso: string, o?: Intl.DateTimeFormatOptions) => formatDate(new Date(`${iso}T00:00`), locale, o ?? { month: 'short', day: 'numeric' })
 
   // 분기별 묶음 (최근 분기 먼저)
@@ -162,7 +166,7 @@ export default function History() {
                   const e = employees.find((x) => x.id === id)
                   return (
                     <tr key={id}>
-                      <td data-label={t('직원', 'Employee')}><div className="emp-cell"><span className="avatar sm">{initials(e?.name ?? id)}</span><div><strong>{e?.name ?? id}</strong><span className="muted small">{e ? roleLabel(e.role, t) : ''}{e && !e.active ? ` · ${t('퇴사', 'Former')}` : ''}</span></div></div></td>
+                      <td data-label={t('직원', 'Employee')}><div className="emp-cell"><span className="avatar sm">{initials(e ? fullName(e) : id)}</span><div><strong>{e ? fullName(e) : id}</strong><span className="muted small">{e ? jobLabel(e, t) : ''}{e && !e.active ? ` · ${t('퇴사', 'Former')}` : ''}</span></div></div></td>
                       <td className="num" data-label={t('횟수', 'Checks')}>{a.checks}</td>
                       <td className="num" data-label={t('총급여', 'Gross')}>{formatCurrency(a.gross)}</td>
                       <td className="num" data-label={t('팁', 'Tips')}>{formatCurrency(a.tips)}</td>

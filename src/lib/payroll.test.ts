@@ -4,7 +4,8 @@ import { defaultW4 } from './federalWithholding'
 import { calculatePayroll, sumResults, tippedOvertimeRate } from './payroll'
 
 const base: Omit<Employee, 'id' | 'payType' | 'rate' | 'role'> = {
-  name: 'Test',
+  firstName: 'Test',
+  lastName: 'Employee',
   pretaxDeferralRate: 0,
   active: true,
   hireDate: '2026-01-01',

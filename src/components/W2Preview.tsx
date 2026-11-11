@@ -26,7 +26,7 @@ export default function W2Preview({ w2, employee, company, year }: { w2: W2; emp
         {cell('a', t('직원 SSN', 'Employee SSN'), `***-**-${employee.ssnLast4}`)}
         {cell('b', 'EIN', company.ein)}
         {cell('c', t('고용주', 'Employer'), `${company.legalName}`, true)}
-        {cell('e', t('직원', 'Employee'), employee.name, true)}
+        {cell('e', t('직원 이름·이니셜 | 성', 'First name & initial | Last name'), `${[employee.firstName, employee.middleInitial].filter(Boolean).join(' ')} | ${employee.lastName}`, true)}
         {cell('1', t('임금·팁·기타 보수', 'Wages, tips, other comp.'), formatCurrency(w2.box1))}
         {cell('2', t('연방 소득세 원천징수', 'Federal income tax withheld'), formatCurrency(w2.box2))}
         {cell('3', t('Social Security 임금', 'Social security wages'), formatCurrency(w2.box3))}
