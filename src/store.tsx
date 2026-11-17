@@ -1,13 +1,13 @@
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
-import { companySchedule } from './config/payrollConfig'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { defaultTimeFor, industries } from './config/industries'
 import { computeResults } from './lib/compute'
 import { effectiveEmployee } from './lib/payroll'
-import { cutoffFor, parseISODate } from './lib/schedule'
+import { addSchedule as apiAddSchedule, deleteSchedule as apiDeleteSchedule, moveOpenRun, updateSchedule as apiUpdateSchedule } from './lib/db/api'
+import { cutoffOf, frequencyInfo, openRuns as computeOpenRuns, scheduleOf, type OpenRun } from './lib/paySchedules'
 import { ytdFor } from './lib/ytd'
-import { currentPayDate, usePortal } from './portal'
+import { usePortal } from './portal'
 import type {
-  ActivityEvent, Authorizations, Company, CompanyData, CurrentRun, Employee, PayRun, PayrollResult, RunStatus, TaxDeposit, TaxKind, TimeEntry,
+  ActivityEvent, Authorizations, Company, CompanyData, CurrentRun, Employee, PayFrequency, PayRun, PaySchedule, PayrollResult, RunStatus, TaxDeposit, TaxKind, TimeEntry,
 } from './types'
 import { federalDepositFor, paymentsFor } from './lib/payments'
 import { fullName } from './lib/names'
@@ -27,7 +27,26 @@ interface Store {
   time: Record<string, TimeEntry>
   runs: PayRun[]
   activity: ActivityEvent[]
+  /** 선택된 회차 지급일 (열린 회차가 여러 개면 바꿀 수 있음) */
   payDate: string
+  /** 선택된 회차 급여 기간 */
+  period: { start: string; end: string }
+  /** 선택된 회차의 지급 주기 (여러 스케줄이 묶였으면 첫 번째) */
+  frequency: PayFrequency
+  schedules: PaySchedule[]
+  /** 지금 열린 회차들 (빠른 지급일 순) */
+  openRuns: OpenRun[]
+  /** 선택된 회차 */
+  openRun: OpenRun
+  selectRun: (payDate: string) => void
+  /** 열린 회차의 상태 */
+  openStatus: (payDate: string) => RunStatus
+  /** 선택된 회차에 포함되는 직원 (이 회차 스케줄 소속) */
+  runEmployees: Employee[]
+  /** 회차 지급일·급여 기간 바꾸기 (제출 전만) */
+  changeRunDates: (dates: { payDate: string; start: string; end: string }, actorName: string, actor?: ActivityEvent['actor']) => Promise<void>
+  saveSchedule: (s: Omit<PaySchedule, 'id' | 'isDefault'> & { id?: string }, actorName: string, actor?: ActivityEvent['actor']) => Promise<void>
+  removeSchedule: (id: string, actorName: string, actor?: ActivityEvent['actor']) => Promise<void>
   /** 회차 상태 (새 급여 기간이 시작되면 자동으로 draft) */
   status: RunStatus
   current: CurrentRun
@@ -73,42 +92,67 @@ const event = (actor: ActivityEvent['actor'], actorName: string, kind: ActivityE
 })
 
 /** 한 고객사의 데이터와 동작을 하위 화면에 제공 */
-export function CompanyProvider({ companyId, children }: { companyId: string; children: ReactNode }) {
-  const { companies, updateCompany } = usePortal()
+export function CompanyProvider({ companyId, initialRun, children }: { companyId: string; initialRun?: string; children: ReactNode }) {
+  const { companies, updateCompany, applyAndReload } = usePortal()
   const data = companies.find((c) => c.company.id === companyId)
-  const payDate = useMemo(() => currentPayDate(), [])
+  const [today] = useState(() => new Date())
+  const [selected, setSelected] = useState<string | null>(initialRun ?? null)
 
   const update = useCallback((fn: (c: CompanyData) => CompanyData) => updateCompany(companyId, fn), [companyId, updateCompany])
 
+  const runsOpen = useMemo(() => (data ? computeOpenRuns(data.schedules, today) : []), [data, today])
+  const openRun: OpenRun | undefined = runsOpen.find((r) => r.payDate === selected) ?? runsOpen[0]
+  const payDate = openRun?.payDate ?? ''
+
   const derived = useMemo(() => {
-    if (!data) return null
-    const status: RunStatus = data.current.payDate === payDate ? data.current.status : 'draft'
+    if (!data || !openRun) return null
+    const current: CurrentRun = data.open[payDate] ?? { payDate, status: 'draft' }
+    const status: RunStatus = current.status
+    const ids = new Set(openRun.schedules.map((x) => x.schedule.id))
+    const runEmployees = data.employees.filter((e) => {
+      const s = scheduleOf(e, data.schedules)
+      return s && ids.has(s.id) && data.timeDates[e.id] === payDate
+    })
     const ytd = ytdFor(data.runs, payDate)
     const ytdGross = Object.fromEntries(Object.entries(ytd).map(([id, y]) => [id, y.gross]))
-    const results = computeResults(data.employees, data.time, ytd, data.company.sutaRate)
+    const results = computeResults(runEmployees, data.time, ytd, data.company.sutaRate)
     const runs = [...data.runs].sort((a, b) => b.payDate.localeCompare(a.payDate))
-    const snapshot = data.current.payDate === payDate ? data.current.snapshot : undefined
+    const snapshot = current.snapshot
     const view: RunView = snapshot && status !== 'draft' && status !== 'changes_requested'
       ? snapshot
-      : { employees: data.employees, time: data.time, results }
-    const deadline = cutoffFor(parseISODate(payDate), data.company.cutoffBusinessDays)
+      : { employees: runEmployees, time: data.time, results }
+    const deadline = cutoffOf(payDate, data.company.cutoffBusinessDays)
     return {
+      current,
       status,
+      runEmployees,
       ytdGross,
       results,
       runs,
       view,
       deadline,
+      frequency: openRun.schedules[0].schedule.frequency,
+      period: { start: current.periodStart ?? openRun.start, end: current.periodEnd ?? openRun.end },
       lastRun: runs.find((r) => r.payDate < payDate),
       approvedForPayDate: runs.find((r) => r.payDate === payDate),
       activity: [...data.activity].sort((a, b) => b.at.localeCompare(a.at)),
     }
-  }, [data, payDate])
+  }, [data, payDate, openRun])
 
   const setStatus = useCallback(
     (status: RunStatus, ev: ActivityEvent, patch: Partial<CurrentRun> = {}) =>
-      update((c) => ({ ...c, current: { ...c.current, payDate, status, ...patch }, activity: [ev, ...c.activity] })),
-    [update, payDate],
+      update((c) => ({
+        ...c,
+        open: {
+          ...c.open,
+          [payDate]: {
+            ...(c.open[payDate] ?? { payDate, status: 'draft' }), payDate, status,
+            periodStart: openRun?.start, periodEnd: openRun?.end, ...patch,
+          },
+        },
+        activity: [ev, ...c.activity],
+      })),
+    [update, payDate, openRun],
   )
 
   if (!data || !derived) return null
@@ -118,8 +162,12 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
     deposits: data.deposits ?? [],
     employees: data.employees,
     time: data.time,
-    current: data.current,
     payDate,
+    schedules: data.schedules,
+    openRuns: runsOpen,
+    openRun: openRun!,
+    selectRun: setSelected,
+    openStatus: (d) => data.open[d]?.status ?? 'draft',
     locked: derived.status === 'submitted' || derived.status === 'in_review' || derived.status === 'processed',
     ...derived,
 
@@ -152,7 +200,7 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
       }),
 
     submitRun: (actorName) => {
-      const overrides = data.employees.filter((e) => e.active && data.time[e.id]?.rate !== undefined).length
+      const overrides = derived.runEmployees.filter((e) => e.active && data.time[e.id]?.rate !== undefined).length
       setStatus(
         'submitted',
         event('client', actorName, 'submit',
@@ -163,8 +211,8 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
           submittedBy: actorName,
           note: undefined,
           snapshot: {
-            employees: data.employees.map((e) => effectiveEmployee(e, data.time[e.id], companySchedule.frequency)),
-            time: { ...data.time },
+            employees: derived.runEmployees.map((e) => effectiveEmployee(e, data.time[e.id], e.payFrequency ?? derived.frequency)),
+            time: Object.fromEntries(derived.runEmployees.flatMap((e) => (data.time[e.id] ? [[e.id, data.time[e.id]]] : []))),
             results: derived.results,
           },
         },
@@ -181,18 +229,19 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
       setStatus('changes_requested', event('firm', actorName, 'changes', `수정 요청: ${note}`, `Requested changes: ${note}`), { note, noteEn: undefined, snapshot: undefined }),
 
     markProcessed: (actorName) => {
-      const snap = data.current.snapshot ?? { time: data.time, results: derived.results }
-      const people = data.current.snapshot?.employees ?? data.employees
+      const snap = derived.current.snapshot ?? { time: data.time, results: derived.results }
+      const people = derived.current.snapshot?.employees ?? derived.runEmployees
       const run: PayRun = {
         id: `run-${payDate}`, payDate, approvedAt: new Date().toISOString(), time: snap.time, results: snap.results,
         payments: paymentsFor(people, snap.results),
+        periodStart: derived.period.start, periodEnd: derived.period.end,
       }
       const fed = federalDepositFor(run, data.company.depositSchedule, false)
       update((c) => ({
         ...c,
         runs: [...c.runs.filter((r) => r.payDate !== payDate), run],
         deposits: [...(c.deposits ?? []).filter((d) => d.id !== fed.id), fed],
-        current: { ...c.current, payDate, status: 'processed' },
+        open: { ...c.open, [payDate]: { ...(c.open[payDate] ?? { payDate }), payDate, status: 'processed', periodStart: derived.period.start, periodEnd: derived.period.end } },
         activity: [event('firm', actorName, 'processed', '급여 처리 완료 — 급여명세서 발행', 'Payroll processed — pay stubs issued'), ...c.activity],
       }))
       return run
@@ -237,6 +286,48 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
           activity: [event('client', actorName, 'settings', `위임 서명: ${ko}`, `Signed: ${en}`), ...c.activity],
         }
       }),
+
+    changeRunDates: async (dates, actorName, actor = 'client') => {
+      const label = (iso: string) => iso.slice(5).replace('-', '/')
+      update((c) => ({
+        ...c,
+        activity: [event(actor, actorName, 'settings',
+          `급여 일정 변경: 지급일 ${label(payDate)} → ${label(dates.payDate)}, 기간 ${label(dates.start)}–${label(dates.end)}`,
+          `Pay dates changed: pay date ${label(payDate)} → ${label(dates.payDate)}, period ${label(dates.start)}–${label(dates.end)}`), ...c.activity],
+      }))
+      const run = openRun!
+      await applyAndReload(async () => {
+        for (const { schedule, period } of run.schedules) {
+          const { id, isDefault: _d, ...rest } = schedule
+          void _d
+          await apiUpdateSchedule(companyId, id, { ...rest, overrides: { ...schedule.overrides, [period.scheduled]: dates } })
+          if (dates.payDate !== period.payDate) await moveOpenRun(id, period.payDate, dates.payDate)
+        }
+      })
+      setSelected(dates.payDate)
+    },
+
+    saveSchedule: async (s, actorName, actor = 'client') => {
+      const info = frequencyInfo(s.frequency, (ko) => ko)
+      const infoEn = frequencyInfo(s.frequency, (_ko, en) => en)
+      update((c) => ({
+        ...c,
+        activity: [event(actor, actorName, 'settings',
+          s.id ? `급여 스케줄 수정: ${s.name || info.label} (${info.label})` : `급여 스케줄 추가: ${s.name || info.label} (${info.label})`,
+          s.id ? `Pay schedule updated: ${s.name || infoEn.label} (${infoEn.label})` : `Pay schedule added: ${s.name || infoEn.label} (${infoEn.label})`), ...c.activity],
+      }))
+      const { id, ...rest } = s
+      await applyAndReload(() => (id ? apiUpdateSchedule(companyId, id, rest) : apiAddSchedule(companyId, rest)))
+    },
+
+    removeSchedule: async (id, actorName, actor = 'client') => {
+      const s = data.schedules.find((x) => x.id === id)
+      update((c) => ({
+        ...c,
+        activity: [event(actor, actorName, 'settings', `급여 스케줄 삭제: ${s?.name || ''}`, `Pay schedule removed: ${s?.name || ''}`), ...c.activity],
+      }))
+      await applyAndReload(() => apiDeleteSchedule(id))
+    },
 
     sendReminder: (actorName) =>
       update((c) => ({ ...c, activity: [event('firm', actorName, 'reminder', '제출 마감 알림 전송', 'Sent a deadline reminder'), ...c.activity] })),

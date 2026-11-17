@@ -1498,3 +1498,84 @@ h1 .status-badge { margin-left: 0.5rem; font-size: 0.8rem; position: relative; t
 .filing-upload input[type='file'] { padding: 0.45rem; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-size: 0.85rem; min-height: 42px; }
 .filing-upload .btn { min-height: 42px; justify-content: center; }
 .next-run .nr-payday { color: var(--good); }
+
+/* ───────── 지급 주기 배지: 주기마다 색이 다름 ───────── */
+.freq-badge { --f: var(--accent); --f-soft: var(--accent-soft); display: inline-flex; align-items: center; gap: 0.3rem; vertical-align: middle; padding: 0.2rem 0.6rem; border-radius: 8px; background: var(--f-soft); color: var(--f); border: 1px solid color-mix(in srgb, var(--f) 35%, transparent); font-size: 0.8rem; line-height: 1.3; white-space: nowrap; }
+.freq-badge strong { font-weight: 800; }
+.freq-badge.sm { font-size: 0.72rem; padding: 0.1rem 0.45rem; border-radius: 6px; }
+.freq-badge.lg { font-size: 0.92rem; padding: 0.3rem 0.75rem; border-radius: 10px; }
+.freq-badge .freq-name { font-weight: 600; color: var(--text-2); }
+.freq-badge .freq-detail { font-weight: 500; color: var(--text-2); margin-left: 0.25rem; white-space: normal; }
+.freq-weekly { --f: #7c3aed; --f-soft: #f1ebff; }
+.freq-biweekly { --f: #2f5bea; --f-soft: #e8edfd; }
+.freq-semimonthly { --f: #0f8a7e; --f-soft: #e0f5f2; }
+.freq-monthly { --f: #c2570c; --f-soft: #fdeedf; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .freq-weekly { --f: #c4a5ff; --f-soft: #2a2140; }
+  :root:not([data-theme='light']) .freq-biweekly { --f: #7c9cff; --f-soft: #1f2843; }
+  :root:not([data-theme='light']) .freq-semimonthly { --f: #5fd3c4; --f-soft: #14302c; }
+  :root:not([data-theme='light']) .freq-monthly { --f: #ffaa66; --f-soft: #3a2614; }
+}
+:root[data-theme='dark'] .freq-weekly { --f: #c4a5ff; --f-soft: #2a2140; }
+:root[data-theme='dark'] .freq-biweekly { --f: #7c9cff; --f-soft: #1f2843; }
+:root[data-theme='dark'] .freq-semimonthly { --f: #5fd3c4; --f-soft: #14302c; }
+:root[data-theme='dark'] .freq-monthly { --f: #ffaa66; --f-soft: #3a2614; }
+
+/* ───────── 회차 선택 (스케줄이 여러 개일 때) ───────── */
+.run-switcher { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1rem; }
+.run-switcher button { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; padding: 0.6rem 0.85rem; border-radius: 12px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; text-align: left; }
+.run-switcher button:hover { border-color: var(--accent); }
+.run-switcher button.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.run-switcher .rs-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.run-switcher strong { font-size: 0.92rem; }
+.run-freqs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.2rem 0 0.5rem; }
+.schedule-pick { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.schedule-pick button { padding: 0.35rem; border-radius: 10px; border: 1.5px solid var(--border); background: var(--surface); cursor: pointer; }
+.schedule-pick button.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ───────── 홈: 주기 표시 · 날짜 변경 ───────── */
+.hero-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+.hero-freqs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.hero-edit { display: inline-flex; align-items: center; gap: 0.35rem; margin: -0.3rem 0 0.8rem; padding: 0; }
+.dates-editor { margin: 0.55rem 0 0.9rem; padding: 1rem 1.1rem; border-radius: 14px; border: 2px dashed var(--accent); background: var(--surface); max-width: 640px; }
+.dates-editor .de-title { display: flex; align-items: center; gap: 0.4rem; font-weight: 750; margin: 0 0 0.2rem; }
+.dates-editor .muted { margin: 0 0 0.8rem; }
+.de-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; margin-bottom: 0.7rem; }
+.de-grid .de-pay span { color: var(--good); }
+.de-grid .de-pay input { border-color: var(--good); }
+.de-error { margin: 0 0 0.7rem; color: var(--crit); font-size: 0.85rem; font-weight: 600; }
+@media (max-width: 560px) { .de-grid { grid-template-columns: 1fr; } }
+.schedule-head-right { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; }
+.next-run.freq-row { border-left-color: var(--f); background: linear-gradient(90deg, var(--f-soft), var(--surface) 45%); }
+.next-run.freq-row .nr-status { gap: 0.35rem; }
+.next-run.freq-row .nr-status .freq-badge { align-self: flex-start; }
+.next-run .nr-state .tag { margin-left: 0.4rem; font-size: 0.7rem; }
+
+/* ───────── 급여 스케줄 관리 ───────── */
+.freq-legend { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.8rem; margin-bottom: 1rem; }
+.freq-legend > div { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; }
+.sched-list { display: flex; flex-direction: column; gap: 0.9rem; margin-bottom: 1rem; }
+.sched-card { border-left: 7px solid var(--f); }
+.sched-card.off { opacity: 0.6; }
+.sched-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.sched-head h2 { margin: 0.45rem 0 0.1rem; }
+.sched-head p { margin: 0; }
+.sched-dates { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; margin: 0.9rem 0; padding: 0; }
+.sched-dates li { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.6rem 0.75rem; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.sched-dates li.now { background: var(--f-soft); border-color: var(--f); }
+.sched-dates small { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.sched-dates strong { color: var(--good); }
+.sched-people { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; font-size: 0.9rem; }
+.sched-people > span { display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+.assign-list { list-style: none; margin: 0.7rem 0 0; padding: 0.7rem; border-radius: 10px; background: var(--surface-2); display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.35rem 1rem; }
+.assign-list label { display: flex; align-items: center; gap: 0.45rem; cursor: pointer; }
+.assign-list li.muted { grid-column: 1 / -1; margin-top: 0.3rem; }
+.sched-form h2 { margin-top: 0; }
+.freq-choices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
+.freq-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.7rem; border-radius: 12px; border: 2px solid var(--border); background: var(--surface); cursor: pointer; text-align: left; font: inherit; color: var(--text-2); }
+.freq-choice.on { border-color: var(--f); background: var(--f-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--f) 20%, transparent); }
+@media (max-width: 760px) {
+  .freq-legend, .freq-choices { grid-template-columns: 1fr 1fr; }
+  .sched-dates { grid-template-columns: 1fr; }
+}
+.my-w2 { margin-bottom: 1rem; } .my-w2 h2 { display: flex; align-items: center; gap: 0.45rem; }

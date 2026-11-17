@@ -2,7 +2,6 @@ import { ChevronDown, Download, FileText } from 'lucide-react'
 import { Fragment, useMemo, useState } from 'react'
 import PaymentsTable from '../components/PaymentsTable'
 import PayStub from '../components/PayStub'
-import { companySchedule } from '../config/payrollConfig'
 import { downloadCsv } from '../lib/csv'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
 import { jobLabel } from '../lib/labels'
@@ -16,7 +15,7 @@ import { fullName } from '../lib/names'
 /** 급여 내역: 회차별·직원별·연간 누계를 한눈에 */
 export default function History() {
   const { t, locale } = usePrefs()
-  const { company, runs, employees } = useStore()
+  const { company, runs, employees, schedules } = useStore()
   const years = [...new Set(runs.map((r) => r.payDate.slice(0, 4)))].sort().reverse()
   const [year, setYear] = useState(() => years[0] ?? String(new Date().getFullYear()))
   const [view, setView] = useState<'runs' | 'people'>('runs')
@@ -30,7 +29,11 @@ export default function History() {
     return e ? fullName(e) : id
   }
   const d = (iso: string, o?: Intl.DateTimeFormatOptions) => formatDate(new Date(`${iso}T00:00`), locale, o ?? { month: 'short', day: 'numeric' })
-  const periodOf = (payDate: string) => payPeriodFor(companySchedule.frequency, parseISODate(payDate))
+  const defaultFreq = (schedules.find((s) => s.isDefault) ?? schedules[0])?.frequency ?? 'biweekly'
+  const periodOf = (payDate: string) => {
+    const r = runs.find((x) => x.payDate === payDate)
+    return r?.periodStart && r.periodEnd ? { start: parseISODate(r.periodStart), end: parseISODate(r.periodEnd) } : payPeriodFor(defaultFreq, parseISODate(payDate))
+  }
   const periodText = (payDate: string) => {
     const p = periodOf(payDate)
     return `${formatDate(p.start, locale, { month: 'short', day: 'numeric' })} – ${formatDate(p.end, locale, { month: 'short', day: 'numeric' })}`
@@ -136,7 +139,7 @@ export default function History() {
                                 {stub?.run === r.id && (() => {
                                   const e = employees.find((x) => x.id === stub.emp)
                                   const res = r.results.find((x) => x.employeeId === stub.emp)
-                                  return e && res ? <PayStub employee={effectiveEmployee(e, r.time[e.id], companySchedule.frequency)} result={res} time={r.time[e.id]} payDate={r.payDate} /> : null
+                                  return e && res ? <PayStub employee={effectiveEmployee(e, r.time[e.id], e.payFrequency ?? defaultFreq)} result={res} time={r.time[e.id]} payDate={r.payDate} periodStart={r.periodStart} periodEnd={r.periodEnd} /> : null
                                 })()}
                                 {r.payments && <PaymentsTable payments={r.payments} employees={employees} payDate={r.payDate} />}
                               </div>

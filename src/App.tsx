@@ -13,6 +13,7 @@ import FirmSettings from './pages/FirmSettings'
 import History from './pages/History'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import Schedules from './pages/Schedules'
 import NotFound from './pages/NotFound'
 import PayrollRun from './pages/PayrollRun'
 import Simulator from './pages/Simulator'
@@ -45,6 +46,7 @@ export default function App() {
               <Route path="taxes" element={<Taxes />} />
               <Route path="company" element={<CompanySettings />} />
               <Route path="simulator" element={<Simulator />} />
+              <Route path="schedules" element={<Schedules />} />
             </Route>
             <Route path="firm" element={<FirmLayout />}>
               <Route index element={<FirmQueue />} />
@@ -53,6 +55,7 @@ export default function App() {
               <Route path="c/:companyId/taxes" element={<FirmReview tab="taxes" />} />
               <Route path="c/:companyId/history" element={<FirmReview tab="history" />} />
               <Route path="c/:companyId/chat" element={<FirmReview tab="chat" />} />
+              <Route path="c/:companyId/schedules" element={<FirmReview tab="schedules" />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -3,7 +3,9 @@ import ChatPanel from '../components/chat/ChatPanel'
 import { useChat } from '../components/chat/useChat'
 import { firmName } from '../lib/supabase'
 import { useState } from 'react'
-import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
+import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import FrequencyBadge from '../components/FrequencyBadge'
+import RunSwitcher from '../components/RunSwitcher'
 import PayrollReview from '../components/PayrollReview'
 import { ActivityList, StatusBadge, StatusTimeline } from '../components/RunStatus'
 import { maskSsn } from '../lib/compliance'
@@ -18,12 +20,13 @@ import { usePrefs } from '../prefs'
 import { CompanyProvider, useStore } from '../store'
 import History from './History'
 import Taxes from './Taxes'
+import Schedules from './Schedules'
 
 function Review() {
   const { t, locale } = usePrefs()
   const { session } = usePortal()
   const store = useStore()
-  const { company, status, view, current, activity, payDate, deadline } = store
+  const { company, status, view, current, activity, payDate, deadline, period, openRun } = store
   const checks = useChecks()
   const [note, setNote] = useState('')
   const [asking, setAsking] = useState(false)
@@ -91,10 +94,13 @@ function Review() {
         <div>
           <Link to="/firm" className="back-link"><ArrowLeft size={16} aria-hidden /> {t('대기열', 'Queue')}</Link>
           <h1>{company.dba} <StatusBadge status={status} /></h1>
+          <RunSwitcher />
+          <p className="run-freqs">{openRun.schedules.map(({ schedule: sc }) => <FrequencyBadge key={sc.id} frequency={sc.frequency} name={sc.name || undefined} />)}</p>
           <div className="run-meta">
             <span>{company.legalName}</span>
             <span>EIN <strong>{company.ein}</strong></span>
             <span>TWC <strong>{company.twcAccount}</strong> · {formatPercent(company.sutaRate, 2)}</span>
+            <span>{t('급여 기간', 'Pay period')} <strong>{formatDate(parseISODate(period.start), locale, { month: 'short', day: 'numeric' })} – {formatDate(parseISODate(period.end), locale, { month: 'short', day: 'numeric' })}</strong></span>
             <span>{t('지급일', 'Pay date')} <strong>{formatDate(pay, locale)}</strong></span>
             <span>{t('마감', 'Cutoff')} <strong>{formatDate(deadline, locale, { month: 'short', day: 'numeric', hour: 'numeric' })}</strong></span>
           </div>
@@ -156,21 +162,23 @@ function FirmChat({ companyId, dba }: { companyId: string; dba: string }) {
 }
 
 /** 회계법인: 고객사 화면 (이번 회차 검토 / 세금·신고 / 급여 내역 / 채팅) */
-export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes' | 'history' | 'chat' }) {
+export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes' | 'history' | 'chat' | 'schedules' }) {
   const { t } = usePrefs()
   const { companyId } = useParams()
+  const [params] = useSearchParams()
   const { companies, removeCompany } = usePortal()
   const navigate = useNavigate()
   const data = companies.find((c) => c.company.id === companyId)
   if (!data) return <div className="page"><div className="card empty">{t('고객사를 찾을 수 없습니다', 'Client not found')}</div></div>
   const base = `/firm/c/${companyId}`
   return (
-    <CompanyProvider key={companyId} companyId={companyId!}>
+    <CompanyProvider key={companyId} companyId={companyId!} initialRun={params.get('run') ?? undefined}>
       <nav className="firm-tabs" aria-label={data.company.dba}>
         <strong>{data.company.dba}</strong>
         <NavLink to={base} end>{t('이번 회차 검토', 'This payroll')}</NavLink>
         <NavLink to={`${base}/taxes`}>{t('세금·신고', 'Taxes & filings')}</NavLink>
         <NavLink to={`${base}/history`}>{t('급여 내역', 'History')}</NavLink>
+        <NavLink to={`${base}/schedules`}>{t('급여 스케줄', 'Pay schedules')}</NavLink>
         <NavLink to={`${base}/chat`}>{t('채팅', 'Chat')}</NavLink>
         <button
           type="button"
@@ -184,7 +192,7 @@ export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes
           <Trash2 size={15} aria-hidden /> {t('고객사 삭제', 'Delete client')}
         </button>
       </nav>
-      {tab === 'review' ? <Review /> : tab === 'taxes' ? <Taxes /> : tab === 'chat' ? <FirmChat companyId={data.company.id} dba={data.company.dba} /> : <History />}
+      {tab === 'review' ? <Review /> : tab === 'taxes' ? <Taxes /> : tab === 'chat' ? <FirmChat companyId={data.company.id} dba={data.company.dba} /> : tab === 'schedules' ? <Schedules backTo={base} /> : <History />}
     </CompanyProvider>
   )
 }

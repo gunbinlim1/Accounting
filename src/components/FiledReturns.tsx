@@ -191,8 +191,8 @@ function UploadForm({ companyId, employees, onDone }: { companyId: string; emplo
         </label>
       )}
       {form === 'W-2' && (
-        <label className="field">
-          <span>{t('직원 (선택)', 'Employee (optional)')}</span>
+        <label className="field" title={t('직원을 고르면 그 직원도 직원 포털에서 본인 W-2를 받을 수 있어요', 'Pick an employee so they can also download it in their employee portal')}>
+          <span>{t('직원 (선택 시 직원 포털에도 공개)', 'Employee (shared to their portal)')}</span>
           <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
             <option value="">{t('전체 묶음', 'All employees')}</option>
             {employees.map((e) => <option key={e.id} value={e.id}>{fullName(e)}</option>)}

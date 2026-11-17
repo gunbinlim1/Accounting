@@ -1,4 +1,4 @@
-import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
+import { payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import { formatCurrency, formatCurrencyWhole, formatDate, formatPercent } from '../lib/format'
 import { parseISODate, payPeriodFor } from '../lib/schedule'
 import { tipCreditRate, tippedOvertimeRate } from '../lib/payroll'
@@ -15,6 +15,9 @@ interface Props {
   time?: TimeEntry
   /** 지급일 YYYY-MM-DD — 있으면 맨 위에 급여 기간·지급일 표시 */
   payDate?: string
+  /** 저장된 급여 기간 (없으면 지급 주기로 계산) */
+  periodStart?: string
+  periodEnd?: string
 }
 
 interface Line {
@@ -24,11 +27,16 @@ interface Line {
 }
 
 /** 각 항목을 쉬운 말로 설명하는 급여명세서 */
-export default function PayStub({ employee: e, result: r, time, payDate }: Props) {
+export default function PayStub({ employee: e, result: r, time, payDate, periodStart, periodEnd }: Props) {
   const { t, locale } = usePrefs()
-  const period = payDate ? payPeriodFor(companySchedule.frequency, parseISODate(payDate)) : null
+  const freq = e.payFrequency ?? 'biweekly'
+  const period = payDate
+    ? periodStart && periodEnd
+      ? { start: parseISODate(periodStart), end: parseISODate(periodEnd) }
+      : payPeriodFor(freq, parseISODate(payDate))
+    : null
   const md = (d: Date) => formatDate(d, locale, { month: 'short', day: 'numeric', year: 'numeric' })
-  const periods = periodsPerYear[companySchedule.frequency]
+  const periods = periodsPerYear[freq]
   const reg = time?.regular ?? 0
   const ot = time?.overtime ?? 0
 
@@ -82,7 +90,7 @@ export default function PayStub({ employee: e, result: r, time, payDate }: Props
       {period && (
         <dl className="stub-dates">
           <div><dt>{t('급여 기간', 'Pay period')}</dt><dd>{md(period.start)} – {md(period.end)}</dd></div>
-          <div><dt>{t('지급일', 'Pay date')}</dt><dd>{md(period.end)}</dd></div>
+          <div><dt>{t('지급일', 'Pay date')}</dt><dd>{md(parseISODate(payDate!))}</dd></div>
         </dl>
       )}
       <div className="stub-head">

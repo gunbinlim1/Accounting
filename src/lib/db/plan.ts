@@ -18,7 +18,7 @@ export type Write =
   | { kind: 'secrets'; employeeId: string; ssn: string | null; routing: string | null; account: string | null }
   | { kind: 'time'; row: TimeRow }
   | { kind: 'run'; row: Omit<RunRow, 'approved_at'> }
-  | { kind: 'processed'; companyId: string; payDate: string; approvedAt: string; results: ResultRow[]; payments: PaymentRow[] }
+  | { kind: 'processed'; companyId: string; payDate: string; approvedAt: string; periodStart: string | null; periodEnd: string | null; results: ResultRow[]; payments: PaymentRow[] }
   | { kind: 'deposit'; row: DepositRow }
   | { kind: 'activity'; row: Omit<ActivityRow, 'at'> }
 
@@ -40,16 +40,21 @@ export function planWrites(prev: CompanyData, next: CompanyData): Write[] {
     if (s) out.push({ kind: 'secrets', employeeId: e.id, ...s })
   }
 
-  // 이번 회차 근무 입력 / 회차 상태
-  const payDate = next.current.payDate
-  const timeWrites: Write[] = Object.entries(next.time)
-    .filter(([id, t]) => !same(prev.time[id], t) || prev.current.payDate !== payDate)
-    .filter(([id]) => next.employees.some((e) => e.id === id))
-    .map(([id, t]) => ({ kind: 'time', row: timeToRow(cid, payDate, id, t) }))
-  const runChanged = !same(currentToRow(cid, prev.current), currentToRow(cid, next.current))
-  const runWrite: Write[] = runChanged ? [{ kind: 'run', row: currentToRow(cid, next.current) }] : []
-  if (LOCKED.has(next.current.status)) out.push(...timeWrites, ...runWrite)
-  else out.push(...runWrite, ...timeWrites)
+  // 열린 회차마다: 근무 입력 / 회차 상태 (직원마다 자기 스케줄의 회차)
+  const dates = new Set([...Object.keys(next.open), ...Object.values(next.timeDates)])
+  for (const payDate of [...dates].sort()) {
+    const timeWrites: Write[] = Object.entries(next.time)
+      .filter(([id]) => next.timeDates[id] === payDate && next.employees.some((e) => e.id === id))
+      .filter(([id, t]) => !same(prev.time[id], t) || prev.timeDates[id] !== payDate)
+      .map(([id, t]) => ({ kind: 'time', row: timeToRow(cid, payDate, id, t) }))
+    const run = next.open[payDate]
+    const before = prev.open[payDate]
+    const runWrite: Write[] = run && (before ? !same(currentToRow(cid, before), currentToRow(cid, run)) : run.status !== 'draft')
+      ? [{ kind: 'run', row: currentToRow(cid, run) }]
+      : []
+    if (run && LOCKED.has(run.status)) out.push(...timeWrites, ...runWrite)
+    else out.push(...runWrite, ...timeWrites)
+  }
 
   // 처리 완료된 회차 (새로 생기거나 다시 처리됨)
   for (const run of next.runs) {
@@ -60,6 +65,8 @@ export function planWrites(prev: CompanyData, next: CompanyData): Write[] {
       companyId: cid,
       payDate: run.payDate,
       approvedAt: run.approvedAt,
+      periodStart: run.periodStart ?? null,
+      periodEnd: run.periodEnd ?? null,
       results: run.results.map((r) => resultToRow(cid, run, r)),
       payments: (run.payments ?? []).map((p) => paymentToRow(cid, run.payDate, p)),
     })

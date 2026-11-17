@@ -4,7 +4,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
 import DocUpload from '../components/DocUpload'
 import type { I9Extract, W4Extract } from '../lib/docExtract'
-import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
+import { payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
+import FrequencyBadge from '../components/FrequencyBadge'
+import { frequencyInfo } from '../lib/paySchedules'
 import { defaultTimeFor, industries, roleTemplate, rolesFor } from '../config/industries'
 import { digits, isValidAccount, isValidRouting, maskAccount } from '../lib/bank'
 import { addBusinessDays, keepLast4, maskSsn } from '../lib/compliance'
@@ -39,6 +41,8 @@ interface Draft {
   role: RoleId
   jobTitle: string
   payType: PayType
+  /** 급여 스케줄 ('' = 회사 기본) */
+  scheduleId: string
   rate: string
   pretax: string
   hireDate: string
@@ -107,7 +111,7 @@ function newDraft(company: Company): Draft {
   const role = defaultRoleFor(company)
   const tpl = roleTemplate(role)
   return {
-    active: true, lastName: '', firstName: '', middleInitial: '', role, jobTitle: '', payType: tpl.payType, rate: String(tpl.rate), pretax: '0',
+    active: true, lastName: '', firstName: '', middleInitial: '', role, jobTitle: '', payType: tpl.payType, scheduleId: '', rate: String(tpl.rate), pretax: '0',
     hireDate: today(), ssn: '', ssnLast4Existing: '', dob: '', phone: '', email: '',
     street: '', city: 'Houston', state: 'TX', zip: '',
     w4Received: true, filingStatus: 'single', multipleJobs: false, dependents: '0', children: '0', otherDependents: '0',
@@ -123,7 +127,7 @@ function fromEmployee(e: Employee): Draft {
   const docs: DocDraft[] = e.i9.documents.map((d) => ({ title: d.title, issuer: d.issuer, number: d.numberLast4, expires: d.expires ?? '', copy: d.copy }))
   while (docs.length < 2) docs.push({ ...blankDoc })
   return {
-    id: e.id, active: e.active, lastName: e.lastName, firstName: e.firstName, middleInitial: e.middleInitial ?? '', role: e.role, jobTitle: e.jobTitle ?? '', payType: e.payType, rate: String(e.rate),
+    id: e.id, active: e.active, lastName: e.lastName, firstName: e.firstName, middleInitial: e.middleInitial ?? '', role: e.role, jobTitle: e.jobTitle ?? '', payType: e.payType, scheduleId: e.scheduleId ?? '', rate: String(e.rate),
     pretax: String(Math.round(e.pretaxDeferralRate * 1000) / 10), hireDate: e.hireDate,
     ssn: '', ssnLast4Existing: e.ssnLast4, dob: e.dateOfBirth ?? '', phone: e.phone ?? '', email: e.email ?? '',
     street: e.address.street, city: e.address.city, state: e.address.state, zip: e.address.zip,
@@ -152,6 +156,7 @@ function toEmployee(d: Draft, id: string): Employee {
     role: d.role,
     jobTitle: d.jobTitle.trim() || undefined,
     payType: d.payType,
+    scheduleId: d.scheduleId || undefined,
     rate: num(d.rate),
     pretaxDeferralRate: num(d.pretax) / 100,
     active: d.active,
@@ -240,7 +245,7 @@ export default function EmployeeForm() {
   const { t, locale } = usePrefs()
   const { id } = useParams()
   const navigate = useNavigate()
-  const { employees, upsertEmployee, company } = useStore()
+  const { employees, upsertEmployee, company, schedules } = useStore()
   const { session } = usePortal()
   const existing = employees.find((e) => e.id === id)
   const [d, setD] = useState<Draft>(() => (existing ? fromEmployee(existing) : newDraft(company)))
@@ -330,11 +335,14 @@ export default function EmployeeForm() {
     }
   }
 
+  const draftSchedule = schedules.find((x) => x.id === d.scheduleId && x.active) ?? schedules.find((x) => x.isDefault) ?? schedules[0]
+  const draftFreq = draftSchedule?.frequency ?? 'biweekly'
+
   const preview = useMemo(() => {
     const emp = toEmployee(d, empId)
     if (!(emp.rate > 0)) return null
-    return calculatePayroll({ employee: emp, payFrequency: companySchedule.frequency, time: defaultTimeFor(d.role, company.tipsEnabled), sutaRate: company.sutaRate })
-  }, [d, empId, company.tipsEnabled, company.sutaRate])
+    return calculatePayroll({ employee: emp, payFrequency: draftFreq, time: defaultTimeFor(d.role, company.tipsEnabled), sutaRate: company.sutaRate })
+  }, [d, empId, company.tipsEnabled, company.sutaRate, draftFreq])
 
   const save = () => {
     upsertEmployee(toEmployee(d, empId), session?.name ?? company.ownerName)
@@ -482,12 +490,23 @@ export default function EmployeeForm() {
                     ]}
                   />
                 </Field>
+                {schedules.filter((x) => x.active).length > 1 && (
+                  <Field label={t('급여 스케줄', 'Pay schedule')} hint={draftSchedule ? frequencyInfo(draftSchedule.frequency, t).detail : undefined}>
+                    <div className="schedule-pick">
+                      {schedules.filter((x) => x.active).map((x) => (
+                        <button type="button" key={x.id} className={draftSchedule?.id === x.id ? 'on' : ''} onClick={() => set('scheduleId', x.isDefault ? '' : x.id)}>
+                          <FrequencyBadge frequency={x.frequency} name={x.name || (x.isDefault ? t('기본', 'Default') : undefined)} size="sm" />
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                )}
                 <Field
                   label={d.payType === 'salary' ? t('기본 연봉', 'Default annual salary') : d.payType === 'tipped' ? t('기본 현금 시급 (팁 크레딧 적용)', 'Default cash wage (tip credit)') : t('기본 시급', 'Default hourly rate')}
                   error={err('rate') ?? rateWarning}
                   hint={
                     d.payType === 'salary'
-                      ? t(`회당 ${formatCurrency(num(d.rate) / periodsPerYear[companySchedule.frequency])} (격주) · 기본값이며 급여 실행에서 회차별로 바꿀 수 있어요`, `${formatCurrency(num(d.rate) / periodsPerYear[companySchedule.frequency])} per biweekly check · default only, adjustable each run`)
+                      ? t(`회당 ${formatCurrency(num(d.rate) / periodsPerYear[draftFreq])} (${frequencyInfo(draftFreq, t).label}) · 기본값이며 급여 실행에서 회차별로 바꿀 수 있어요`, `${formatCurrency(num(d.rate) / periodsPerYear[draftFreq])} per ${frequencyInfo(draftFreq, t).label.toLowerCase()} check · default only, adjustable each run`)
                       : d.payType === 'tipped'
                         ? t('최저 $2.13, 팁 포함 $7.25 미달 시 자동 보전 · 급여 실행에서 회차별로 바꿀 수 있어요', '$2.13 minimum, topped up to $7.25/h · adjustable each run')
                         : t('기본값이며 급여 실행에서 회차별로 바꿀 수 있어요', 'Default only — adjustable each run')

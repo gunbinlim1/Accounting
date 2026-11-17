@@ -1,10 +1,9 @@
-import { companySchedule } from '../config/payrollConfig'
 import type { Employee, PayrollResult, TimeEntry, YtdTotals } from '../types'
 import { calculatePayroll, effectiveEmployee } from './payroll'
 
 const emptyTime: TimeEntry = { regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }
 
-/** 재직 직원의 이번 회차 급여 계산 (회차별 시급, 연간 누적, 고객사 TWC 세율 반영) */
+/** 재직 직원의 이번 회차 급여 계산 (직원별 지급 주기·회차별 시급·연간 누적·고객사 TWC 세율 반영) */
 export function computeResults(
   employees: Employee[],
   time: Record<string, TimeEntry>,
@@ -13,13 +12,14 @@ export function computeResults(
 ): PayrollResult[] {
   return employees
     .filter((e) => e.active)
-    .map((employee) =>
-      calculatePayroll({
-        employee: effectiveEmployee(employee, time[employee.id], companySchedule.frequency),
-        payFrequency: companySchedule.frequency,
+    .map((employee) => {
+      const frequency = employee.payFrequency ?? 'biweekly'
+      return calculatePayroll({
+        employee: effectiveEmployee(employee, time[employee.id], frequency),
+        payFrequency: frequency,
         time: time[employee.id] ?? emptyTime,
         ytd: ytd[employee.id],
         sutaRate,
-      }),
-    )
+      })
+    })
 }

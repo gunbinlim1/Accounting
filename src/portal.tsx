@@ -1,14 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { companySchedule } from './config/payrollConfig'
 import { createClientCompany, deleteCompany, loadCompanies, resolveSession, runWrite, uploadDoc } from './lib/db/api'
 import { companyToRow, withoutSecrets } from './lib/db/mappers'
 import { planWrites, type Write } from './lib/db/plan'
-import { nextPayDate, parseISODate, toISODate } from './lib/schedule'
+import { normalizeCompany } from './lib/companyData'
 import { supabase, supabaseConfigured } from './lib/supabase'
 import type { Company, CompanyData, CompanyDoc, Session } from './types'
-
-export const currentPayDate = (from = new Date()) =>
-  toISODate(nextPayDate(companySchedule.frequency, parseISODate(companySchedule.anchorDate), from))
 
 /**
  * 로그인 상태
@@ -44,6 +40,8 @@ interface Portal {
   /** 로그인·2단계 인증 직후 다시 판단 */
   refreshAuth: () => Promise<void>
   reload: () => Promise<void>
+  /** 저장 대기 중인 변경을 마친 뒤 작업(예: 스케줄 저장)을 하고 다시 불러옴 */
+  applyAndReload: (task: () => Promise<void>) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -63,7 +61,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const companiesRef = useRef<CompanyData[]>([])
 
   const reload = useCallback(async () => {
-    const list = await loadCompanies(currentPayDate())
+    const list = await loadCompanies(new Date())
     companiesRef.current = list
     setCompanies(list)
   }, [])
@@ -166,7 +164,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     (id: string, fn: (c: CompanyData) => CompanyData) => {
       const prev = companiesRef.current.find((c) => c.company.id === id)
       if (!prev) return
-      const next = fn(prev)
+      const next = normalizeCompany(fn(prev), new Date())
       const writes = planWrites(prev, next)
       // 전체 SSN·계좌번호는 저장 요청에만 담고 화면 상태에서는 바로 지움
       const clean: CompanyData = writes.some((w) => w.kind === 'secrets') ? { ...next, employees: next.employees.map(withoutSecrets) } : next
@@ -212,6 +210,15 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       },
       refreshAuth: evaluate,
       reload,
+      applyAndReload: async (task) => {
+        if (timeBuffer.current.size) flushTime()
+        await chain.current
+        try {
+          await task()
+        } finally {
+          await reload()
+        }
+      },
       logout: async () => {
         if (timeBuffer.current.size) flushTime()
         await chain.current

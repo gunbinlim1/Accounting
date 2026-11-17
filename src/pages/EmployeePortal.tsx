@@ -1,10 +1,10 @@
-import { ChevronRight, FileText, Landmark, Languages, LogOut, MailCheck, ShieldCheck } from 'lucide-react'
-import { useState } from 'react'
+import { ChevronRight, Download, FileCheck2, FileText, Landmark, Languages, LogOut, MailCheck, ShieldCheck } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { downloadFiling, listFilings, type Filing } from '../lib/filings'
 import { Navigate } from 'react-router-dom'
 import { payMethodLabel } from '../components/PaymentsTable'
 import PayStub from '../components/PayStub'
 import W2Preview from '../components/W2Preview'
-import { companySchedule } from '../config/payrollConfig'
 import { formatCurrency, formatDate } from '../lib/format'
 import { filingLabel, jobLabel } from '../lib/labels'
 import { effectiveEmployee } from '../lib/payroll'
@@ -90,7 +90,7 @@ function Portal({ employeeId }: { employeeId: string }) {
                 return r && res ? (
                   <section className="card">
                     <div className="card-head"><h2>{formatDate(new Date(`${r.payDate}T00:00`), locale, { year: 'numeric', month: 'long', day: 'numeric' })}</h2><button className="btn sm" onClick={() => window.print()}>{t('인쇄·PDF 저장', 'Print / save PDF')}</button></div>
-                    <PayStub employee={effectiveEmployee(me, r.time[me.id], companySchedule.frequency)} result={res} time={r.time[me.id]} payDate={r.payDate} />
+                    <PayStub employee={effectiveEmployee(me, r.time[me.id], me.payFrequency ?? 'biweekly')} result={res} time={r.time[me.id]} payDate={r.payDate} periodStart={r.periodStart} periodEnd={r.periodEnd} />
                   </section>
                 ) : null
               })()}
@@ -101,6 +101,7 @@ function Portal({ employeeId }: { employeeId: string }) {
         {tab === 'w2' && (
           me.eConsent ? (
             <>
+              <MyW2Files companyId={company.id} employeeId={me.id} />
               <p className="muted small">{t(`${year}년 W-2는 ${year + 1}년 1월 31일까지 발행돼요. 지금은 지금까지의 급여로 만든 미리보기입니다.`, `Your ${year} W-2 is issued by Jan 31, ${year + 1}. This preview reflects pay so far.`)}</p>
               <W2Preview w2={w2For(runs, me.id, year)} employee={me} company={company} year={year} />
             </>
@@ -136,5 +137,45 @@ export default function EmployeePortal() {
     <CompanyProvider companyId={session.companyId}>
       <Portal employeeId={session.employeeId} />
     </CompanyProvider>
+  )
+}
+
+/** 회계법인이 올린 본인 W-2 PDF (다른 직원 것은 서버 권한으로 안 보임) */
+function MyW2Files({ companyId, employeeId }: { companyId: string; employeeId: string }) {
+  const { t, locale } = usePrefs()
+  const [items, setItems] = useState<Filing[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    listFilings(companyId)
+      .then((x) => setItems(x.filter((f) => f.form === 'W-2' && f.employeeId === employeeId)))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+  }, [companyId, employeeId])
+  const download = (f: Filing) => downloadFiling(f).catch((e) => setError(e instanceof Error ? e.message : String(e)))
+
+  return (
+    <section className="card my-w2">
+      <h2><FileCheck2 size={19} aria-hidden /> {t('발행된 W-2 (PDF)', 'Issued W-2 (PDF)')}</h2>
+      {error && <p className="chat-error" role="alert">{error}</p>}
+      {items === null ? (
+        <p className="muted small">{t('불러오는 중…', 'Loading…')}</p>
+      ) : items.length === 0 ? (
+        <p className="muted small">{t('아직 발행된 W-2가 없어요. 회계법인이 발행하면 여기에서 PDF로 받을 수 있어요 (매년 1월 31일까지).', 'No W-2 issued yet. When your employer’s CPA issues it (by Jan 31), download it here.')}</p>
+      ) : (
+        <ul className="filing-list">
+          {items.map((f) => (
+            <li key={f.id} className="filing-row">
+              <span className="filing-form f-W2">W-2</span>
+              <span className="filing-info">
+                <strong>{t(`${f.period}년 소득`, `${f.period} wages`)}</strong>
+                <small className="muted">{f.filedOn ? t(`발행 ${formatDate(new Date(`${f.filedOn}T00:00`), locale, { month: 'short', day: 'numeric', year: 'numeric' })}`, `Issued ${formatDate(new Date(`${f.filedOn}T00:00`), locale, { month: 'short', day: 'numeric', year: 'numeric' })}`) : ''}</small>
+              </span>
+              <span className="filing-actions">
+                <button type="button" className="btn sm primary" onClick={() => void download(f)}><Download size={15} aria-hidden /> {t('PDF 받기', 'Download PDF')}</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }

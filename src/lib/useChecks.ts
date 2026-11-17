@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { companySchedule, standardHours } from '../config/payrollConfig'
+import { standardHours } from '../config/payrollConfig'
 import { useStore, type RunView } from '../store'
 import { runChecks } from './checks'
 import { effectiveEmployee } from './payroll'
@@ -8,19 +8,19 @@ import { effectiveEmployee } from './payroll'
 export function useChecks(view?: RunView) {
   const store = useStore()
   const src = view ?? store.view
-  const { lastRun, ytdGross } = store
+  const { lastRun, ytdGross, frequency } = store
   const [today] = useState(() => new Date())
   return useMemo(
     () =>
       runChecks({
-        employees: src.employees.filter((e) => e.active).map((e) => effectiveEmployee(e, src.time[e.id], companySchedule.frequency)),
+        employees: src.employees.filter((e) => e.active).map((e) => effectiveEmployee(e, src.time[e.id], e.payFrequency ?? frequency)),
         time: src.time,
         results: src.results,
         previous: lastRun?.results,
         ytdGross,
-        standardHours: standardHours[companySchedule.frequency],
+        standardHours: standardHours[frequency],
         today,
       }),
-    [src, lastRun, ytdGross, today],
+    [src, lastRun, ytdGross, today, frequency],
   )
 }

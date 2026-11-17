@@ -1,11 +1,14 @@
 /**
  * Supabase 읽기·쓰기. 모든 권한 판단은 DB의 RLS가 하고, 여기서는 요청만 보냄.
  */
-import type { CompanyData, Session } from '../../types'
+import type { CompanyData, PaySchedule, Session } from '../../types'
+import { normalizeCompany } from '../companyData'
+import { openDateOf, openRuns } from '../paySchedules'
+import { toISODate } from '../schedule'
 import { DOCS_BUCKET, db } from '../supabase'
 import {
-  activityFromRow, companyFromRow, currentFromRow, depositFromRow, employeeFromRow, runsFromRows, timeFromRow,
-  type ActivityRow, type CompanyRow, type DepositRow, type EmployeeRow, type PaymentRow, type ResultRow, type RunRow, type TimeRow,
+  activityFromRow, companyFromRow, currentFromRow, depositFromRow, employeeFromRow, runsFromRows, scheduleFromRow, scheduleToRow, timeFromRow,
+  type ActivityRow, type CompanyRow, type DepositRow, type EmployeeRow, type PaymentRow, type ResultRow, type RunRow, type ScheduleRow, type TimeRow,
 } from './mappers'
 import type { Write } from './plan'
 
@@ -40,12 +43,14 @@ export async function resolveSession(): Promise<Session | null> {
 }
 
 /** 이 계정이 볼 수 있는 모든 고객사 데이터 (RLS가 범위를 정함) */
-export async function loadCompanies(payDate: string): Promise<CompanyData[]> {
+export async function loadCompanies(today: Date): Promise<CompanyData[]> {
   const client = db()
-  const [companies, employees, time, runs, results, payments, deposits, activity] = await Promise.all([
+  const from = toISODate(today)
+  const [companies, employees, schedules, time, runs, results, payments, deposits, activity] = await Promise.all([
     client.from('companies').select('*').order('dba'),
     client.from('employees').select('*').order('last_name'),
-    client.from('time_entries').select('*').eq('pay_date', payDate),
+    client.from('pay_schedules').select('*').order('created_at'),
+    client.from('time_entries').select('*').gte('pay_date', from),
     client.from('pay_runs').select('*'),
     client.from('pay_results').select('*'),
     client.from('payments').select('*'),
@@ -54,6 +59,7 @@ export async function loadCompanies(payDate: string): Promise<CompanyData[]> {
   ])
   const C = must(companies) as CompanyRow[]
   const E = must(employees) as EmployeeRow[]
+  const S = must(schedules) as ScheduleRow[]
   const T = must(time) as TimeRow[]
   const R = must(runs) as RunRow[]
   const RS = must(results) as ResultRow[]
@@ -64,16 +70,56 @@ export async function loadCompanies(payDate: string): Promise<CompanyData[]> {
   return C.map((c) => {
     const byCo = <X extends { company_id: string }>(xs: X[]) => xs.filter((x) => x.company_id === c.id)
     const coRuns = byCo(R)
-    return {
+    const found = byCo(S).map(scheduleFromRow).sort((a, b) => Number(b.isDefault) - Number(a.isDefault))
+    // 스케줄 행이 없으면(권한·마이그레이션 문제) 예전 기본값으로 화면이 계속 동작하게
+    const scheds = found.length ? found : [{ id: `default-${c.id}`, name: '', frequency: 'biweekly' as const, firstPayDate: '2026-01-09', overrides: {}, isDefault: true, active: true }]
+    const emps = byCo(E).map(employeeFromRow)
+    const timeDates: Record<string, string> = {}
+    for (const e of emps) {
+      const d = openDateOf(e, scheds, today)
+      if (d) timeDates[e.id] = d
+    }
+    const coTime = byCo(T)
+    const time = Object.fromEntries(
+      emps.flatMap((e) => {
+        const row = coTime.find((t) => t.employee_id === e.id && t.pay_date === timeDates[e.id])
+        return row ? [[e.id, timeFromRow(row)]] : []
+      }),
+    )
+    const open = Object.fromEntries(
+      openRuns(scheds, today).map((r) => [r.payDate, currentFromRow(coRuns.find((x) => x.pay_date === r.payDate), r.payDate)]),
+    )
+    return normalizeCompany({
       company: companyFromRow(c),
-      employees: byCo(E).map(employeeFromRow),
-      time: Object.fromEntries(byCo(T).map((t) => [t.employee_id, timeFromRow(t)])),
+      employees: emps,
+      schedules: scheds,
+      time,
+      timeDates,
       runs: runsFromRows(coRuns, byCo(RS), byCo(P)),
-      current: currentFromRow(coRuns.find((r) => r.pay_date === payDate), payDate),
+      open,
       deposits: byCo(D).map(depositFromRow),
       activity: byCo(A).map(activityFromRow),
-    }
+    }, today)
   })
+}
+
+// ───────── 급여 스케줄
+
+export async function addSchedule(companyId: string, s: Omit<PaySchedule, 'id' | 'isDefault'>): Promise<void> {
+  must(await db().from('pay_schedules').insert(scheduleToRow(companyId, s)))
+}
+
+export async function updateSchedule(companyId: string, id: string, s: Omit<PaySchedule, 'id' | 'isDefault'>): Promise<void> {
+  must(await db().from('pay_schedules').update(scheduleToRow(companyId, s)).eq('id', id))
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  must(await db().from('pay_schedules').delete().eq('id', id))
+}
+
+/** 회차 지급일 변경: 제출 전 근무 입력을 새 날짜로 옮김 */
+export async function moveOpenRun(scheduleId: string, from: string, to: string): Promise<void> {
+  must(await db().rpc('move_open_run', { p_schedule_id: scheduleId, p_from: from, p_to: to }))
 }
 
 /** 쓰기 하나 실행 */
@@ -101,7 +147,7 @@ export async function runWrite(w: Write): Promise<void> {
       must(await client.from('pay_runs').upsert(w.row))
       return
     case 'processed':
-      must(await client.from('pay_runs').upsert({ company_id: w.companyId, pay_date: w.payDate, status: 'processed', approved_at: w.approvedAt }))
+      must(await client.from('pay_runs').upsert({ company_id: w.companyId, pay_date: w.payDate, status: 'processed', approved_at: w.approvedAt, period_start: w.periodStart, period_end: w.periodEnd }))
       must(await client.from('pay_results').delete().eq('company_id', w.companyId).eq('pay_date', w.payDate))
       if (w.results.length) must(await client.from('pay_results').insert(w.results))
       must(await client.from('payments').delete().eq('company_id', w.companyId).eq('pay_date', w.payDate))

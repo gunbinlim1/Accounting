@@ -1,6 +1,6 @@
 import { ChevronDown, HandCoins, Info, OctagonAlert, TriangleAlert } from 'lucide-react'
 import { Fragment, useState } from 'react'
-import { companySchedule, periodsPerYear } from '../config/payrollConfig'
+import { periodsPerYear } from '../config/payrollConfig'
 import type { Check } from '../lib/checks'
 import { formatCurrency, formatCurrencyWhole, initials } from '../lib/format'
 import { jobLabel } from '../lib/labels'
@@ -12,16 +12,16 @@ import CheckList from './CheckList'
 import PayStub from './PayStub'
 import { compareByName, fullName } from '../lib/names'
 
-const PERIODS = periodsPerYear[companySchedule.frequency]
 
 /** 이번 회차에 적용된 시급·연봉을 크게 표시. 아래 줄에 실제 근무시간 */
 export function RateCell({ e, entry }: { e: Employee; entry?: TimeEntry }) {
   const { t } = usePrefs()
-  const eff = effectiveEmployee(e, entry, companySchedule.frequency)
+  const freq = e.payFrequency ?? 'biweekly'
+  const eff = effectiveEmployee(e, entry, freq)
   const salary = e.payType === 'salary'
   const changed = entry?.rate !== undefined
   const sub = salary
-    ? t(`회당 ${formatCurrency(eff.rate / PERIODS)}`, `${formatCurrency(eff.rate / PERIODS)} per check`)
+    ? t(`회당 ${formatCurrency(eff.rate / periodsPerYear[freq])}`, `${formatCurrency(eff.rate / periodsPerYear[freq])} per check`)
     : `${(entry?.regular ?? 0) + (entry?.overtime ?? 0)}h${entry?.overtime ? ` · OT ${entry.overtime}h` : ''}${e.payType === 'tipped' ? t(' · + 팁', ' · + tips') : ''}`
   return (
     <td className="num rate-cell" data-label={t('급여 기준', 'Pay rate')}>
@@ -138,7 +138,7 @@ export default function PayrollReview({ view, checks, payDate }: { view: RunView
                     {isOpen && (
                       <tr className="detail-row">
                         <td colSpan={8}>
-                          <PayStub employee={effectiveEmployee(e, view.time[e.id], companySchedule.frequency)} result={r} time={view.time[e.id]} payDate={payDate} />
+                          <PayStub employee={effectiveEmployee(e, view.time[e.id], e.payFrequency ?? 'biweekly')} result={r} time={view.time[e.id]} payDate={payDate} />
                         </td>
                       </tr>
                     )}

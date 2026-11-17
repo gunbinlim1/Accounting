@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { StatusBadge } from '../components/RunStatus'
 import FirmChatInbox from '../components/chat/FirmChatInbox'
-import { companySchedule, standardHours } from '../config/payrollConfig'
+import { standardHours } from '../config/payrollConfig'
 import { runChecks } from '../lib/checks'
 import { computeResults } from '../lib/compute'
 import { formatCurrency, formatDate } from '../lib/format'
@@ -11,9 +11,12 @@ import { markCompanySeen } from '../lib/db/api'
 import { industryLabel } from '../lib/labels'
 import { effectiveEmployee } from '../lib/payroll'
 import { cashOutOf, timeLeft } from '../lib/runStatus'
-import { cutoffFor, parseISODate } from '../lib/schedule'
+import { parseISODate } from '../lib/schedule'
 import { ytdFor } from '../lib/ytd'
-import { currentPayDate, usePortal } from '../portal'
+import { usePortal } from '../portal'
+import { firstOpen } from '../lib/companyData'
+import { cutoffOf, openRuns, scheduleOf } from '../lib/paySchedules'
+import FrequencyBadge from '../components/FrequencyBadge'
 import { usePrefs } from '../prefs'
 import type { RunStatus } from '../types'
 
@@ -36,33 +39,37 @@ export default function FirmQueue() {
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [now] = useState(() => new Date())
-  const payDate = currentPayDate(now)
+  const payDate = companies.map((c) => firstOpen(c)?.payDate).filter(Boolean).sort()[0] ?? ''
 
   const rows = useMemo(
     () =>
-      companies.map((c) => {
-        const status: RunStatus = c.current.payDate === payDate ? c.current.status : 'draft'
-        const ytdAll = ytdFor(c.runs, payDate)
+      companies.flatMap((c) => openRuns(c.schedules, now).map((run) => {
+        const current = c.open[run.payDate] ?? { payDate: run.payDate, status: 'draft' as RunStatus }
+        const status: RunStatus = current.status
+        const ids = new Set(run.schedules.map((x) => x.schedule.id))
+        const runEmployees = c.employees.filter((e) => ids.has(scheduleOf(e, c.schedules)?.id ?? '') && c.timeDates[e.id] === run.payDate)
+        const frequency = run.schedules[0].schedule.frequency
+        const ytdAll = ytdFor(c.runs, run.payDate)
         const ytd = Object.fromEntries(Object.entries(ytdAll).map(([id, y]) => [id, y.gross]))
-        const view = c.current.snapshot && (status === 'submitted' || status === 'in_review' || status === 'processed')
-          ? c.current.snapshot
-          : { employees: c.employees, time: c.time, results: computeResults(c.employees, c.time, ytdAll, c.company.sutaRate) }
+        const view = current.snapshot && (status === 'submitted' || status === 'in_review' || status === 'processed')
+          ? current.snapshot
+          : { employees: runEmployees, time: c.time, results: computeResults(runEmployees, c.time, ytdAll, c.company.sutaRate) }
         const checks = runChecks({
-          employees: view.employees.filter((e) => e.active).map((e) => effectiveEmployee(e, view.time[e.id], companySchedule.frequency)),
+          employees: view.employees.filter((e) => e.active).map((e) => effectiveEmployee(e, view.time[e.id], e.payFrequency ?? frequency)),
           time: view.time,
           results: view.results,
           ytdGross: ytd,
-          standardHours: standardHours[companySchedule.frequency],
+          standardHours: standardHours[frequency],
           today: now,
         })
-        const deadline = cutoffFor(parseISODate(payDate), c.company.cutoffBusinessDays)
-        return { c, status, view, checks, deadline, lastActivity: [...c.activity].sort((a, b) => b.at.localeCompare(a.at))[0] }
-      }),
-    [companies, payDate, now],
+        const deadline = cutoffOf(run.payDate, c.company.cutoffBusinessDays)
+        return { c, run, frequencies: [...new Set(run.schedules.map((x) => x.schedule.frequency))], status, view, checks, deadline, lastActivity: [...c.activity].sort((a, b) => b.at.localeCompare(a.at))[0] }
+      })),
+    [companies, now],
   )
 
   const bucket = (s: RunStatus): Filter => (s === 'submitted' || s === 'in_review' ? 'action' : s === 'processed' ? 'done' : 'waiting')
-  const counts = { all: rows.length, action: rows.filter((r) => bucket(r.status) === 'action').length, waiting: rows.filter((r) => bucket(r.status) === 'waiting').length, done: rows.filter((r) => bucket(r.status) === 'done').length }
+  const counts = { all: new Set(rows.map((r) => r.c.company.id)).size, action: rows.filter((r) => bucket(r.status) === 'action').length, waiting: rows.filter((r) => bucket(r.status) === 'waiting').length, done: rows.filter((r) => bucket(r.status) === 'done').length }
   const order: Record<RunStatus, number> = { submitted: 0, in_review: 1, changes_requested: 2, draft: 3, processed: 4 }
   const list = rows
     .filter((r) => filter === 'all' || bucket(r.status) === filter)
@@ -130,18 +137,18 @@ export default function FirmQueue() {
           <span />
         </div>
         <ul className="qlist">
-          {list.map(({ c, status, view, checks, deadline, lastActivity }) => {
+          {list.map(({ c, run, frequencies, status, view, checks, deadline, lastActivity }) => {
             const due = timeLeft(deadline, now, t)
             const flags = checks.filter((x) => x.severity !== 'info').length
             const crit = checks.filter((x) => x.severity === 'critical').length
             return (
-              <li key={c.company.id}>
-                <Link to={`/firm/c/${c.company.id}`} className="qlist-row">
+              <li key={`${c.company.id}-${run.payDate}`}>
+                <Link to={`/firm/c/${c.company.id}?run=${run.payDate}`} className="qlist-row">
                   <span className="plist-person">
                     <span className="identity-logo sm">{c.company.dba.split(' ').map((w) => w[0]).slice(0, 2).join('')}</span>
                     <span className="plist-name">
-                      <strong>{c.company.dba}</strong>
-                      <small>{industryLabel(c.company.industry, t)} · {c.company.ownerName} · {t(`직원 ${view.results.length}명`, `${view.results.length} people`)} · EIN {c.company.ein}</small>
+                      <strong>{c.company.dba} {frequencies.map((f) => <FrequencyBadge key={f} frequency={f} size="sm" />)}</strong>
+                      <small>{t('지급일', 'Pay')} {formatDate(parseISODate(run.payDate), locale, { month: 'short', day: 'numeric' })} · {industryLabel(c.company.industry, t)} · {c.company.ownerName} · {t(`직원 ${view.results.length}명`, `${view.results.length} people`)} · EIN {c.company.ein}</small>
                     </span>
                   </span>
                   <span className="q-status">

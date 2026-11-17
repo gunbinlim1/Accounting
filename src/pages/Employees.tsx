@@ -1,7 +1,9 @@
 import { ArrowDownUp, ChevronRight, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, UserCheck, UserX } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { companySchedule, periodsPerYear } from '../config/payrollConfig'
+import { periodsPerYear } from '../config/payrollConfig'
+import FrequencyBadge from '../components/FrequencyBadge'
+import { scheduleOf } from '../lib/paySchedules'
 import { i9Badge, i9State, maskSsn } from '../lib/compliance'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
 import { filingLabel, jobLabel } from '../lib/labels'
@@ -29,7 +31,8 @@ function tenure(hireDate: string, today: Date, t: (ko: string, en: string) => st
 export default function Employees() {
   const { t, locale } = usePrefs()
   const { session } = usePortal()
-  const { employees, results, toggleActive, company } = useStore()
+  const { employees, results, toggleActive, company, schedules } = useStore()
+  const multi = schedules.filter((x) => x.active).length > 1
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('active')
@@ -163,7 +166,7 @@ export default function Employees() {
                     <span className="plist-person">
                       <span className="avatar" style={{ background: `hsl(${hue} 70% 92%)`, color: `hsl(${hue} 45% 32%)` }}>{initials(fullName(e))}</span>
                       <span className="plist-name">
-                        <strong>{fullName(e)}{!e.active && <span className="tag neutral">{t('퇴사', 'Former')}</span>}</strong>
+                        <strong>{fullName(e)}{!e.active && <span className="tag neutral">{t('퇴사', 'Former')}</span>}{multi && <> <FrequencyBadge frequency={e.payFrequency ?? 'biweekly'} name={scheduleOf(e, schedules)?.name || undefined} size="sm" /></>}</strong>
                         <small>
                           {jobLabel(e, t)} · {t('입사', 'Hired')} {formatDate(new Date(e.hireDate + 'T00:00'), locale, { year: 'numeric', month: 'short', day: 'numeric' })} ({tenure(e.hireDate, today, t)}) · SSN {maskSsn(e.ssnLast4)}
                         </small>
@@ -176,7 +179,7 @@ export default function Employees() {
                       </strong>
                       <small>
                         {e.payType === 'salary'
-                          ? t(`회당 ${formatCurrency(e.rate / periodsPerYear[companySchedule.frequency])}`, `${formatCurrency(e.rate / periodsPerYear[companySchedule.frequency])} per check`)
+                          ? t(`회당 ${formatCurrency(e.rate / periodsPerYear[e.payFrequency ?? 'biweekly'])}`, `${formatCurrency(e.rate / periodsPerYear[e.payFrequency ?? 'biweekly'])} per check`)
                           : e.payType === 'tipped' ? t('팁 직원 · 401(k) ', 'Tipped · 401(k) ') + `${Math.round(e.pretaxDeferralRate * 100)}%`
                           : t('시급 · 401(k) ', 'Hourly · 401(k) ') + `${Math.round(e.pretaxDeferralRate * 100)}%`}
                       </small>

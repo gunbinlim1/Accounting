@@ -16,8 +16,8 @@ const MODEL = 'claude-opus-5-5'
 const HISTORY = 30
 const MAX_AI_PER_HOUR = 30
 
-// src/config/payrollConfig.ts의 companySchedule과 같게 유지
-const SCHEDULE = { frequency: 'biweekly', anchor: '2026-01-09' }
+// 스케줄 행이 없을 때의 기본값 (src/lib/db/api.ts와 같게 유지)
+const FALLBACK_SCHEDULE = { name: '', frequency: 'biweekly', first_pay_date: '2026-01-09', overrides: {}, is_default: true, active: true }
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -167,32 +167,89 @@ function cutoff(pay: Date, businessDays: number): Date {
   return d
 }
 
+interface ScheduleRow {
+  name: string
+  frequency: 'weekly' | 'biweekly' | 'semimonthly' | 'monthly'
+  first_pay_date: string
+  overrides: Record<string, { payDate: string; start: string; end: string }>
+  is_default: boolean
+  active: boolean
+}
+
+const utc = (s: string) => new Date(`${s}T00:00:00Z`)
+const plus = (d: Date, n: number) => new Date(d.getTime() + n * DAY)
+const lastOfMonth = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0))
+
+/** 원래 지급일: from 이후(당일 포함) 첫 날짜 — src/lib/schedule.ts nextPayDate와 같은 규칙 */
+function nextScheduled(s: ScheduleRow, from: Date): Date {
+  if (s.frequency === 'weekly' || s.frequency === 'biweekly') {
+    const step = s.frequency === 'weekly' ? 7 : 14
+    const anchor = utc(s.first_pay_date)
+    const k = Math.max(0, Math.ceil((from.getTime() - anchor.getTime()) / (step * DAY)))
+    return plus(anchor, k * step)
+  }
+  const y = from.getUTCFullYear()
+  const m = from.getUTCMonth()
+  const c = s.frequency === 'monthly'
+    ? [lastOfMonth(y, m), lastOfMonth(y, m + 1)]
+    : [new Date(Date.UTC(y, m, 15)), lastOfMonth(y, m), new Date(Date.UTC(y, m + 1, 15))]
+  return c.find((d) => d >= from)!
+}
+
+function previousScheduled(s: ScheduleRow, pay: Date): Date {
+  if (s.frequency === 'weekly') return plus(pay, -7)
+  if (s.frequency === 'biweekly') return plus(pay, -14)
+  const y = pay.getUTCFullYear()
+  const m = pay.getUTCMonth()
+  if (s.frequency === 'monthly') return lastOfMonth(y, m - 1)
+  return pay.getUTCDate() === 15 ? lastOfMonth(y, m - 1) : new Date(Date.UTC(y, m, 15))
+}
+
+/** 오늘 이후 회차 3개 (회차별 날짜 변경 반영) */
+function upcomingPeriods(s: ScheduleRow, today: Date) {
+  const out: { payDate: Date; start: Date; end: Date; changed: boolean }[] = []
+  let d = nextScheduled(s, plus(today, -31))
+  for (let i = 0; i < 80 && out.length < 3; i++) {
+    const key = iso(d)
+    const o = s.overrides?.[key]
+    const p = o
+      ? { payDate: utc(o.payDate), start: utc(o.start), end: utc(o.end), changed: true }
+      : { payDate: d, start: plus(previousScheduled(s, d), 1), end: d, changed: false }
+    if (p.payDate >= today) out.push(p)
+    d = nextScheduled(s, plus(d, 1))
+  }
+  return out
+}
+
+const FREQ_LABEL = { weekly: 'weekly', biweekly: 'biweekly (every other week)', semimonthly: 'semi-monthly (15th and last day)', monthly: 'monthly (last day)' }
+
 async function companyContext(db: Db, companyId: string): Promise<string> {
-  const [{ data: c }, { data: runs }, { count: active }] = await Promise.all([
+  const [{ data: c }, { data: runs }, { count: active }, { data: scheds }] = await Promise.all([
     db.from('companies').select('legal_name, dba, industry, tips_enabled, deposit_schedule, cutoff_business_days, created_at').eq('id', companyId).single(),
-    db.from('pay_runs').select('pay_date, status, note').eq('company_id', companyId).order('pay_date', { ascending: false }).limit(4),
+    db.from('pay_runs').select('pay_date, status, note').eq('company_id', companyId).order('pay_date', { ascending: false }).limit(6),
     db.from('employees').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('active', true),
+    db.from('pay_schedules').select('name, frequency, first_pay_date, overrides, is_default, active').eq('company_id', companyId),
   ])
   const today = todayCentral()
-  const anchor = new Date(`${SCHEDULE.anchor}T00:00:00Z`)
-  const step = 14 * DAY
-  const k = Math.max(0, Math.ceil((today.getTime() - anchor.getTime()) / step))
   const days = cutoffDays(c)
-  const lines = [0, 1, 2].map((i) => {
-    const pay = new Date(anchor.getTime() + (k + i) * step)
-    const start = new Date(pay.getTime() - 13 * DAY)
-    const due = cutoff(pay, days)
-    const run = (runs ?? []).find((r: { pay_date: string }) => r.pay_date === iso(pay))
-    return `- pay date ${weekday(pay)} ${iso(pay)}, period ${iso(start)}..${iso(pay)}, submit by ${weekday(due)} ${iso(due)} 3:00 PM Central, status: ${run?.status ?? 'draft (not submitted)'}${i === 0 ? ' (current)' : ''}`
-  })
+  const schedules: ScheduleRow[] = ((scheds ?? []) as ScheduleRow[]).filter((s) => s.active)
+  const list = schedules.length ? schedules : [FALLBACK_SCHEDULE as ScheduleRow]
+  const lines = list.flatMap((s) => [
+    `Schedule "${s.name || (s.is_default ? 'Default' : s.frequency)}": ${FREQ_LABEL[s.frequency]}`,
+    ...upcomingPeriods(s, today).map((p, i) => {
+      const due = cutoff(p.payDate, days)
+      const run = (runs ?? []).find((r: { pay_date: string }) => r.pay_date === iso(p.payDate))
+      return `  - pay date ${weekday(p.payDate)} ${iso(p.payDate)}, period ${iso(p.start)}..${iso(p.end)}${p.changed ? ' (dates changed for this run)' : ''}, submit by ${weekday(due)} ${iso(due)} 3:00 PM Central, status: ${run?.status ?? 'draft (not submitted)'}${i === 0 ? ' (current)' : ''}`
+    }),
+  ])
   const past = (runs ?? []).filter((r: { pay_date: string }) => r.pay_date < iso(today))
     .map((r: { pay_date: string; status: string }) => `- ${r.pay_date}: ${r.status}`)
   return [
     `Today (Texas): ${weekday(today)} ${iso(today)}`,
     `Company: ${c?.dba || c?.legal_name} (legal name ${c?.legal_name}), industry: ${c?.industry}, tipped employees: ${c?.tips_enabled ? 'yes' : 'no'}, active employees: ${active ?? 0}`,
-    `Pay schedule: ${SCHEDULE.frequency}, Fridays. Submit hours by ${days} business days before pay date, 3:00 PM Central.`,
+    `Submit hours ${days} business days before each pay date, 3:00 PM Central.`,
     `Federal tax deposit schedule: ${c?.deposit_schedule}`,
-    'Upcoming pay periods:',
+    'Pay schedules and upcoming pay periods:',
     ...lines,
     past.length ? 'Recent past runs:' : 'No past runs recorded yet.',
     ...past,
@@ -207,7 +264,8 @@ function systemPrompt(firm: string): string {
   return `You are the first-line assistant in the payroll portal of ${firm}, a Texas CPA firm. The people writing to you are the firm's clients: business owners or their office staff (restaurants, service, retail, manufacturing). The firm reviews and processes their payroll, deposits payroll taxes, and files Forms 941, 940, W-2/W-3 and Texas TWC C-3 for them as their reporting agent.
 
 How the portal works, so you can guide clients:
-- Home shows the payroll schedule: process-by deadline, status, pay period and pay date for the current and next pay periods.
+- Home shows this run's pay period and pay date (with a link to change them for this run only, before submitting), then the next run for each pay schedule.
+- "Pay schedules" (from Home → Manage pay schedules): add a schedule (weekly, biweekly, semi-monthly, monthly), edit it, and assign employees to it. Each schedule runs its own payroll; a run switcher appears when more than one is open.
 - "Run payroll" (/run): the client enters hours, overtime, tips and fringe benefits per employee, reviews, then submits to the CPA. They can recall a submission until the CPA starts reviewing. The CPA may send it back with "changes requested".
 - "Employees": add or edit employees, W-4 and I-9 details, direct deposit, document uploads.
 - "History": past pay runs and pay stubs. "Taxes": deposits and filing deadlines handled by the CPA. "Company": company details and authorizations (Form 8655 reporting agent, TWC).

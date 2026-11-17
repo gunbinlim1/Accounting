@@ -1,48 +1,45 @@
-import { AlertTriangle, CalendarClock, MessageCircle } from 'lucide-react'
+import { AlertTriangle, CalendarClock, MessageCircle, Settings2 } from 'lucide-react'
 import { useMemo } from 'react'
-import { companySchedule } from '../config/payrollConfig'
+import { Link } from 'react-router-dom'
 import { formatDate } from '../lib/format'
-import { buildSchedule } from '../lib/payrollSchedule'
-import { daysBetween, frequencyLabel, parseISODate } from '../lib/schedule'
+import { cutoffOf, openPeriod, periodsAfter, periodsBefore } from '../lib/paySchedules'
+import { daysBetween, parseISODate, toISODate } from '../lib/schedule'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
-import type { PayFrequency } from '../types'
-
-/** 회사에 설정된 급여 스케줄 (지금은 1개, 여러 개가 되면 여기에 추가) */
-const schedules: { id: string; frequency: PayFrequency; anchor: string }[] = [
-  { id: 'main', frequency: companySchedule.frequency, anchor: companySchedule.anchorDate },
-]
+import FrequencyBadge from './FrequencyBadge'
 
 /** 홈 화면: 스케줄마다 이번 회차 다음의 급여 일정 한 줄 + 처리 안 된 지난 회차 알림 (이번 회차는 위 히어로 카드) */
-export default function PayrollSchedule({ now, onAsk }: { now: Date; onAsk?: () => void }) {
+export default function PayrollSchedule({ now, onAsk, manageTo = '/schedules' }: { now: Date; onAsk?: () => void; manageTo?: string }) {
   const { t, locale } = usePrefs()
-  const { company, payDate, runs } = useStore()
+  const { company, runs, schedules, employees } = useStore()
 
-  const rows = useMemo(
-    () => schedules.map((s) => {
-      const all = buildSchedule({
-        frequency: s.frequency,
-        anchor: parseISODate(s.anchor),
-        currentPayDate: parseISODate(payDate),
-        createdAt: company.createdAt,
-        processedPayDates: runs.map((r) => r.payDate),
-        cutoffBusinessDays: company.cutoffBusinessDays,
-        upcoming: 1,
-      })
-      return { schedule: s, next: all.find((r) => r.kind === 'upcoming')!, missed: all.filter((r) => r.kind === 'missed') }
-    }),
-    [payDate, company.createdAt, company.cutoffBusinessDays, runs],
-  )
+  const rows = useMemo(() => {
+    const done = new Set(runs.map((r) => r.payDate))
+    const companySince = company.createdAt ? toISODate(new Date(company.createdAt)) : null
+    return schedules.filter((s) => s.active).map((s) => {
+      const open = openPeriod(s, now)
+      // 기본 스케줄은 회사 가입일부터, 추가 스케줄은 만든 날부터
+      const scheduleSince = !s.isDefault && s.createdAt ? toISODate(new Date(s.createdAt)) : null
+      const since = [companySince, scheduleSince].filter(Boolean).sort().pop() ?? null
+      const missed = since ? periodsBefore(s, open, since, 3).filter((p) => !done.has(p.payDate)).reverse() : []
+      const people = employees.filter((e) => e.active && (e.scheduleId === s.id || (!e.scheduleId && s.isDefault))).length
+      return { schedule: s, next: periodsAfter(s, open, 1)[0], missed, people }
+    })
+  }, [schedules, runs, employees, company.createdAt, now])
 
-  const day = (d: Date) => formatDate(d, locale, { month: 'short', day: 'numeric' })
-  const dayW = (d: Date) => formatDate(d, locale, { month: 'short', day: 'numeric', weekday: 'short' })
-  const missed = rows.flatMap((r) => r.missed)
+  const day = (iso: string) => formatDate(parseISODate(iso), locale, { month: 'short', day: 'numeric' })
+  const dayW = (iso: string) => formatDate(parseISODate(iso), locale, { month: 'short', day: 'numeric', weekday: 'short' })
+  const missed = [...new Map(rows.flatMap((r) => r.missed).map((m) => [m.payDate, m])).values()].sort((a, b) => a.payDate.localeCompare(b.payDate))
+  const multi = rows.length > 1
 
   return (
     <section className="card schedule-card" aria-labelledby="schedule-title">
       <div className="schedule-head">
         <h2 id="schedule-title"><CalendarClock size={19} aria-hidden /> {t('다음 급여 일정', 'Next payroll')}</h2>
-        <span className="muted small">{t(`마감: 지급일 ${company.cutoffBusinessDays}영업일 전 오후 3시`, `Due ${company.cutoffBusinessDays} business days before pay day, 3 PM`)}</span>
+        <span className="schedule-head-right">
+          <span className="muted small">{t(`마감: 지급일 ${company.cutoffBusinessDays}영업일 전 오후 3시`, `Due ${company.cutoffBusinessDays} business days before pay day, 3 PM`)}</span>
+          <Link to={manageTo} className="btn sm"><Settings2 size={14} aria-hidden /> {t('급여 스케줄 관리·추가', 'Manage pay schedules')}</Link>
+        </span>
       </div>
 
       {missed.length > 0 && (
@@ -57,15 +54,16 @@ export default function PayrollSchedule({ now, onAsk }: { now: Date; onAsk?: () 
       )}
 
       <div className="schedule-list">
-        {rows.map(({ schedule, next }) => {
-          const dLeft = daysBetween(now, next.payDate)
-          const weeks = Math.round(daysBetween(now, next.cutoff) / 7)
+        {rows.map(({ schedule, next, people }) => {
+          const dLeft = daysBetween(now, parseISODate(next.payDate))
+          const cutoff = cutoffOf(next.payDate, company.cutoffBusinessDays)
+          const weeks = Math.max(1, Math.round(daysBetween(now, cutoff) / 7))
           return (
-            <article key={schedule.id} className="next-run tone-next">
+            <article key={schedule.id} className={`next-run tone-next freq-row freq-${schedule.frequency}`}>
               <div className="nr-status">
-                <span className="nr-freq">{frequencyLabel(schedule.frequency, t)}</span>
-                <span className="nr-state"><CalendarClock size={18} aria-hidden /><strong>{t('다음 회차', 'Next period')}</strong></span>
-                <small>{t(`이번 회차 지급 후 입력 · 약 ${weeks}주 뒤 마감`, `Opens after this pay day · due in ~${weeks} weeks`)}</small>
+                <FrequencyBadge frequency={schedule.frequency} name={multi ? schedule.name || (schedule.isDefault ? t('기본', 'Default') : undefined) : undefined} size="lg" />
+                <span className="nr-state"><strong>{t('다음 회차', 'Next period')}</strong>{next.changed && <span className="tag warn">{t('날짜 변경됨', 'Changed')}</span>}</span>
+                <small>{multi ? t(`직원 ${people}명 · `, `${people} people · `) : ''}{t(`약 ${weeks}주 뒤 마감`, `due in ~${weeks} weeks`)}</small>
               </div>
               <dl className="nr-facts">
                 <div className="nr-period">
@@ -74,7 +72,7 @@ export default function PayrollSchedule({ now, onAsk }: { now: Date; onAsk?: () 
                 </div>
                 <div>
                   <dt>{t('처리 마감', 'Process by')}</dt>
-                  <dd>{dayW(next.cutoff)} <span>{next.cutoff.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })}</span></dd>
+                  <dd>{formatDate(cutoff, locale, { month: 'short', day: 'numeric', weekday: 'short' })} <span>{cutoff.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })}</span></dd>
                 </div>
                 <div>
                   <dt>{t('지급일', 'Pay date')}</dt>

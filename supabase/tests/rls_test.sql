@@ -247,6 +247,55 @@ delete from public.filings;
 select test.ok((select count(*) = 0 from public.filings), 'firm deletes a filing');
 reset role;
 
+-- ── 급여 스케줄: 기본 스케줄 자동 생성, 추가·직원 지정, 지급일 이동
+select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
+set role authenticated;
+select test.ok((select count(*) = 1 and bool_and(is_default and frequency = 'biweekly') from public.pay_schedules), 'each company starts with a default biweekly schedule');
+select test.denied($$insert into public.pay_schedules (company_id, frequency, first_pay_date, is_default) values ((select ca from ids limit 1), 'monthly', '2026-01-31', true)$$, 'client cannot add a second default schedule');
+insert into public.pay_schedules (company_id, name, frequency, first_pay_date) values ((select ca from ids limit 1), 'Office', 'monthly', '2026-01-31');
+select test.ok((select count(*) = 2 from public.pay_schedules), 'client adds a monthly schedule');
+update public.pay_schedules set is_default = true where frequency = 'monthly';
+select test.ok((select count(*) = 1 from public.pay_schedules where is_default), 'client cannot move the default flag');
+select test.denied($$update public.pay_schedules set active = false where is_default$$, 'default schedule cannot be turned off');
+update public.employees set schedule_id = (select id from public.pay_schedules where frequency = 'monthly') where id = '00000000-0000-0000-0000-0000000000e2';
+select test.ok((select schedule_id is not null from public.employees where id = '00000000-0000-0000-0000-0000000000e2'), 'client assigns an employee to the monthly schedule');
+update public.pay_schedules set overrides = '{"2026-12-11": {"payDate": "2026-12-10", "start": "2026-11-28", "end": "2026-12-10"}}' where is_default;
+select test.ok((select overrides ? '2026-12-11' from public.pay_schedules where is_default), 'client changes one pay date');
+insert into public.time_entries (company_id, pay_date, employee_id, regular) values ((select ca from ids limit 1), '2026-12-11', '00000000-0000-0000-0000-0000000000e1', 40);
+insert into public.time_entries (company_id, pay_date, employee_id, regular) values ((select ca from ids limit 1), '2026-12-11', '00000000-0000-0000-0000-0000000000e2', 8);
+select public.move_open_run((select id from public.pay_schedules where is_default), '2026-12-11', '2026-12-10');
+select test.ok((select pay_date = '2026-12-10' from public.time_entries where employee_id = '00000000-0000-0000-0000-0000000000e1' and regular = 40), 'hours move to the new pay date');
+select test.ok((select pay_date = '2026-12-11' from public.time_entries where employee_id = '00000000-0000-0000-0000-0000000000e2' and regular = 8), 'other schedules are not moved');
+select test.denied($$select public.move_open_run((select id from public.pay_schedules where is_default), '2026-11-13', '2026-11-12')$$, 'cannot move a submitted or processed run');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000b', 'owner-b@b.example');
+set role authenticated;
+select test.ok((select count(*) = 1 from public.pay_schedules), 'B sees only its own schedule');
+select test.denied($$select public.move_open_run((select s.id from public.pay_schedules s join public.companies c on c.id = s.company_id where c.legal_name = 'A Foods LLC' limit 1), '2026-12-10', '2026-12-09')$$, 'B cannot move A''s run');
+reset role;
+-- 다른 회사 스케줄은 지정 불가
+select test.denied($$update public.employees set schedule_id = (select s.id from public.pay_schedules s join public.companies c on c.id = s.company_id where c.legal_name = 'B Parts Inc.') where id = '00000000-0000-0000-0000-0000000000e1'$$, 'cannot assign another company''s schedule');
+
+-- ── 직원 W-2: 본인 것만
+select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
+set role authenticated;
+insert into storage.objects (bucket_id, name) values ('payroll-docs', (select ca from ids limit 1)::text || '/filings/w2-maria.pdf'), ('payroll-docs', (select ca from ids limit 1)::text || '/filings/w2-tony.pdf'), ('payroll-docs', (select ca from ids limit 1)::text || '/filings/w2-all.pdf');
+insert into public.filings (company_id, form, period, file_name, path, employee_id) values
+  ((select ca from ids limit 1), 'W-2', '2026', 'w2-maria.pdf', (select ca from ids limit 1)::text || '/filings/w2-maria.pdf', '00000000-0000-0000-0000-0000000000e1'),
+  ((select ca from ids limit 1), 'W-2', '2026', 'w2-tony.pdf', (select ca from ids limit 1)::text || '/filings/w2-tony.pdf', '00000000-0000-0000-0000-0000000000e2'),
+  ((select ca from ids limit 1), 'W-2', '2026', 'w2-all.pdf', (select ca from ids limit 1)::text || '/filings/w2-all.pdf', null);
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000e', 'emp@mail.example');
+set role authenticated;
+select test.ok((select count(*) = 1 and bool_and(file_name = 'w2-maria.pdf') from public.filings), 'employee sees only their own W-2');
+select test.ok((select count(*) = 1 and bool_and(name like '%w2-maria.pdf') from storage.objects), 'employee can open only their own W-2 file');
+select test.ok((select count(*) = 2 from public.pay_schedules), 'employee can read their company schedules');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
+set role authenticated;
+delete from public.filings;
+reset role;
+
 -- ── 회계법인이 고객 삭제
 select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
 set role authenticated;

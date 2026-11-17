@@ -109,6 +109,10 @@ export interface Employee {
   eConsent?: boolean
   /** 업로드한 서류 기록 (파일 자체는 서버 단계에서 보관) */
   documents?: UploadedDoc[]
+  /** 급여 스케줄 (없으면 회사 기본 스케줄) */
+  scheduleId?: string
+  /** 불러올 때 채움: 이 직원 스케줄의 지급 주기 (저장 안 함) */
+  payFrequency?: PayFrequency
 }
 
 /** 1) 고객이 직접 수표 발행 2) 회계법인이 수표 인쇄 3) 직접입금 */
@@ -242,6 +246,9 @@ export interface PayRun {
   results: PayrollResult[]
   /** 직원별 지급 처리 결과 */
   payments?: PaymentRecord[]
+  /** 급여 기간 (없으면 스케줄로 계산) */
+  periodStart?: string
+  periodEnd?: string
 }
 
 export interface PaymentRecord {
@@ -351,14 +358,37 @@ export interface CurrentRun {
   /** 수정 요청 메모의 영어 문구 (있으면 영어 화면에서 사용) */
   noteEn?: string
   snapshot?: RunSnapshot
+  /** 회차 급여 기간 (저장된 값) */
+  periodStart?: string
+  periodEnd?: string
+}
+
+/** 회사 급여 스케줄 (회사마다 기본 1개 + 추가 가능) */
+export interface PaySchedule {
+  id: string
+  name: string
+  frequency: PayFrequency
+  /** 첫 지급일(기준일) YYYY-MM-DD — 매주·격주는 이 날짜에서 7·14일 간격 */
+  firstPayDate: string
+  /** 회차별 날짜 변경: 원래 지급일 → 실제 지급일·급여 기간 */
+  overrides: Record<string, { payDate: string; start: string; end: string }>
+  isDefault: boolean
+  active: boolean
+  /** 스케줄을 만든 시각 (이전 회차는 '처리 안 됨'으로 보지 않음) */
+  createdAt?: string
 }
 
 export interface CompanyData {
   company: Company
   employees: Employee[]
+  schedules: PaySchedule[]
+  /** 직원별 지금 회차 근무 입력 (직원마다 자기 스케줄의 열린 회차) */
   time: Record<string, TimeEntry>
+  /** 직원 ID → 그 근무 입력이 속한 회차 지급일 */
+  timeDates: Record<string, string>
   runs: PayRun[]
-  current: CurrentRun
+  /** 지금 열려 있는 회차들 (지급일 → 상태) */
+  open: Record<string, CurrentRun>
   activity: ActivityEvent[]
   deposits: TaxDeposit[]
 }

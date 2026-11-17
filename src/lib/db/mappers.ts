@@ -3,7 +3,7 @@
  * 테이블 구조는 supabase/migrations/20261111000000_payroll_schema.sql
  */
 import type {
-  ActivityEvent, Company, CompanyDoc, CurrentRun, Employee, I9, PaymentRecord, PayrollResult, PayRun, RunSnapshot, TaxDeposit, TimeEntry, W4,
+  ActivityEvent, Company, CompanyDoc, CurrentRun, Employee, I9, PaymentRecord, PayrollResult, PayRun, PaySchedule, RunSnapshot, TaxDeposit, TimeEntry, W4,
 } from '../../types'
 
 const num = (v: unknown): number => (v === null || v === undefined || v === '' ? 0 : Number(v))
@@ -114,6 +114,7 @@ export interface EmployeeRow {
   ssn_on_file?: boolean
   e_consent: boolean
   documents: Employee['documents'] | null
+  schedule_id: string | null
 }
 
 export const employeeFromRow = (r: EmployeeRow): Employee => ({
@@ -143,6 +144,7 @@ export const employeeFromRow = (r: EmployeeRow): Employee => ({
       : undefined,
   eConsent: r.e_consent,
   documents: r.documents ?? [],
+  scheduleId: r.schedule_id ?? undefined,
 })
 
 /**
@@ -179,6 +181,7 @@ export function employeeToRow(e: Employee, companyId: string): Omit<EmployeeRow,
     account_last4: e.bank?.accountLast4 ?? '',
     e_consent: !!e.eConsent,
     documents: e.documents ?? [],
+    schedule_id: e.scheduleId ?? null,
   }
 }
 
@@ -246,6 +249,8 @@ export interface RunRow {
   note_en: string | null
   snapshot: RunSnapshot | null
   approved_at: string | null
+  period_start: string | null
+  period_end: string | null
 }
 
 export interface ResultRow {
@@ -282,6 +287,8 @@ export const currentFromRow = (row: RunRow | undefined, payDate: string): Curren
         note: row.note ?? undefined,
         noteEn: row.note_en ?? undefined,
         snapshot: row.snapshot ?? undefined,
+        periodStart: row.period_start ?? undefined,
+        periodEnd: row.period_end ?? undefined,
       }
     : { payDate, status: 'draft' }
 
@@ -294,6 +301,8 @@ export const currentToRow = (companyId: string, c: CurrentRun): Omit<RunRow, 'ap
   note: c.note ?? null,
   note_en: c.noteEn ?? null,
   snapshot: c.snapshot ?? null,
+  period_start: c.periodStart ?? null,
+  period_end: c.periodEnd ?? null,
 })
 
 /**
@@ -308,6 +317,8 @@ export function runsFromRows(runs: RunRow[], results: ResultRow[], payments: Pay
       id: `run-${payDate}`,
       payDate,
       approvedAt: run?.approved_at ?? `${payDate}T12:00:00.000Z`,
+      periodStart: run?.period_start ?? undefined,
+      periodEnd: run?.period_end ?? undefined,
       time: Object.fromEntries(rs.map((r) => [r.employee_id, r.entry])),
       results: rs.map((r) => r.result),
       payments: payments
@@ -392,4 +403,36 @@ export const activityFromRow = (r: ActivityRow): ActivityEvent => ({
 
 export const activityToRow = (companyId: string, a: ActivityEvent): Omit<ActivityRow, 'at'> => ({
   id: a.id, company_id: companyId, actor: a.actor, actor_name: a.actorName, kind: a.kind, ko: a.ko, en: a.en,
+})
+
+export interface ScheduleRow {
+  id: string
+  company_id: string
+  name: string
+  frequency: PaySchedule['frequency']
+  first_pay_date: string
+  overrides: PaySchedule['overrides'] | null
+  is_default: boolean
+  active: boolean
+  created_at?: string
+}
+
+export const scheduleFromRow = (r: ScheduleRow): PaySchedule => ({
+  id: r.id,
+  name: r.name,
+  frequency: r.frequency,
+  firstPayDate: r.first_pay_date,
+  overrides: r.overrides ?? {},
+  isDefault: r.is_default,
+  active: r.active,
+  createdAt: r.created_at,
+})
+
+export const scheduleToRow = (companyId: string, s: Omit<PaySchedule, 'id' | 'isDefault' | 'createdAt'>) => ({
+  company_id: companyId,
+  name: s.name.trim(),
+  frequency: s.frequency,
+  first_pay_date: s.firstPayDate,
+  overrides: s.overrides,
+  active: s.active,
 })

@@ -1,4 +1,4 @@
-import { ArrowRight, Banknote, CalendarDays, CalendarRange, Clock, HandCoins, Landmark, MessageSquareWarning, PiggyBank, Wallet } from 'lucide-react'
+import { ArrowRight, Banknote, CalendarCog, CalendarDays, CalendarRange, Clock, HandCoins, Landmark, MessageSquareWarning, PiggyBank, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
@@ -6,11 +6,14 @@ import CheckList from '../components/CheckList'
 import PayrollSchedule from '../components/PayrollSchedule'
 import { openChat } from '../components/chat/events'
 import { ActivityList, StatusBadge, StatusTimeline } from '../components/RunStatus'
-import { companySchedule, periodsPerYear } from '../config/payrollConfig'
+import { periodsPerYear } from '../config/payrollConfig'
+import FrequencyBadge from '../components/FrequencyBadge'
+import RunDatesEditor from '../components/RunDatesEditor'
+import RunSwitcher from '../components/RunSwitcher'
 import { formatCurrencyWhole, formatDate } from '../lib/format'
 import { sumResults } from '../lib/payroll'
 import { timeLeft } from '../lib/runStatus'
-import { daysBetween, frequencyLabel, parseISODate, payPeriodFor, upcomingDeadlines } from '../lib/schedule'
+import { daysBetween, frequencyLabel, parseISODate, upcomingDeadlines } from '../lib/schedule'
 import { segmentsOf } from '../lib/segments'
 import { useChecks } from '../lib/useChecks'
 import { usePortal } from '../portal'
@@ -20,13 +23,17 @@ import { useStore } from '../store'
 export default function Dashboard() {
   const { t, locale } = usePrefs()
   const { session } = usePortal()
-  const { company, payDate, view, status, current, deadline, activity, employees } = useStore()
+  const store = useStore()
+  const { company, payDate, view, status, current, deadline, activity, employees, period, openRun, frequency } = store
+  const [editingDates, setEditingDates] = useState(false)
   const checks = useChecks()
   const [now] = useState(() => new Date())
   const pay = parseISODate(payDate)
   const daysLeft = daysBetween(now, pay)
-  const periodStart = payPeriodFor(companySchedule.frequency, pay).start
-  const periodDays = daysBetween(periodStart, pay) + 1
+  const periodStart = parseISODate(period.start)
+  const periodEnd = parseISODate(period.end)
+  const periodDays = daysBetween(periodStart, periodEnd) + 1
+  const changed = openRun.schedules.some((x) => x.period.changed)
   const due = timeLeft(deadline, now, t)
   const totals = sumResults(view.results)
   const centsHome = totals.gross > 0 ? Math.round(((totals.net + totals.cashTips) / totals.gross) * 100) : 0
@@ -64,16 +71,32 @@ export default function Dashboard() {
 
       <section className="hero card">
         <div className="hero-main">
-          <span className="eyebrow">{t('이번 회차', 'This pay period')} · <StatusBadge status={status} /></span>
+          <RunSwitcher />
+          <div className="hero-top">
+            <span className="eyebrow">{t('이번 회차', 'This pay period')} · <StatusBadge status={status} /></span>
+            <span className="hero-freqs">
+              {openRun.schedules.map(({ schedule: sc }) => <FrequencyBadge key={sc.id} frequency={sc.frequency} name={sc.name || undefined} size="lg" />)}
+              {changed && <span className="tag warn">{t('날짜 변경됨', 'Dates changed')}</span>}
+            </span>
+          </div>
+          {editingDates ? (
+            <RunDatesEditor
+              payDate={payDate}
+              start={period.start}
+              end={period.end}
+              onCancel={() => setEditingDates(false)}
+              onSave={async (d) => { await store.changeRunDates(d, session?.name ?? company.ownerName); setEditingDates(false) }}
+            />
+          ) : (
           <div className="hero-dates">
             <div className="hero-period">
               <span className="hp-label"><CalendarRange size={16} aria-hidden /> {t('급여 기간', 'Pay period')}</span>
               <strong className="hp-range">
                 {formatDate(periodStart, locale, { month: 'long', day: 'numeric', weekday: 'short' })}
                 <span className="hp-dash" aria-hidden>–</span>
-                {formatDate(pay, locale, { month: 'long', day: 'numeric', weekday: 'short' })}
+                {formatDate(periodEnd, locale, { month: 'long', day: 'numeric', weekday: 'short' })}
               </strong>
-              <span className="hp-meta">{t(`${periodDays}일 · ${frequencyLabel(companySchedule.frequency, t)}`, `${periodDays} days · ${frequencyLabel(companySchedule.frequency, t)}`)}</span>
+              <span className="hp-meta">{t(`${periodDays}일 · ${frequencyLabel(frequency, t)}`, `${periodDays} days · ${frequencyLabel(frequency, t)}`)}</span>
             </div>
             <div className="hero-period hero-payday">
               <span className="hp-label"><Banknote size={16} aria-hidden /> {t('지급일', 'Pay date')}</span>
@@ -84,6 +107,12 @@ export default function Dashboard() {
               <span className="hp-meta">{t('직원에게 급여가 지급되는 날', 'The day employees get paid')}</span>
             </div>
           </div>
+          )}
+          {!editingDates && status === 'draft' && (
+            <button type="button" className="link-btn hero-edit" onClick={() => setEditingDates(true)}>
+              <CalendarCog size={15} aria-hidden /> {t('이번 회차 급여 기간·지급일 변경', 'Change this run’s pay period or pay date')}
+            </button>
+          )}
           <StatusTimeline status={status} submittedAt={current.submittedAt} />
         </div>
         <div className="hero-cta">
@@ -125,7 +154,7 @@ export default function Dashboard() {
         <div className="tile card highlight">
           <PiggyBank size={20} className="tile-icon" aria-hidden />
           <span className="tile-label">{t('45B 팁 크레딧 (연 환산)', '45B tip credit (annualized)')}</span>
-          <span className="tile-value">{formatCurrencyWhole(totals.tipCredit45B * periodsPerYear[companySchedule.frequency])}</span>
+          <span className="tile-value">{formatCurrencyWhole(totals.tipCredit45B * periodsPerYear[frequency])}</span>
           <span className="muted small">{t('팁에 낸 회사 FICA를 세액공제로', 'Employer FICA on tips back as a credit')}</span>
         </div>
       </section>

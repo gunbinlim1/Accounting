@@ -19,9 +19,11 @@ const base: CompanyData = {
     cutoffBusinessDays: 2, authorizations: { form8655: 'pending', twcAgent: 'pending', bankDebit: 'pending' }, documents: [],
   },
   employees: [emp],
+  schedules: [],
   time: { e1: { regular: 60, overtime: 0, cashTips: 300, cardTips: 800 } },
+  timeDates: { e1: '2026-11-13' },
   runs: [],
-  current: { payDate: '2026-11-13', status: 'draft' },
+  open: { '2026-11-13': { payDate: '2026-11-13', status: 'draft' } },
   activity: [],
   deposits: [],
 }
@@ -53,6 +55,30 @@ describe('row mappers', () => {
 })
 
 describe('write planner', () => {
+  it('keeps two open runs apart: each employee saves to their own pay date', () => {
+    const e2: Employee = { ...emp, id: 'e2', scheduleId: 's2' }
+    const two: CompanyData = {
+      ...base, employees: [emp, e2],
+      time: { ...base.time, e2: { regular: 8, overtime: 0, cashTips: 0, cardTips: 0 } },
+      timeDates: { e1: '2026-11-13', e2: '2026-11-30' },
+      open: { ...base.open, '2026-11-30': { payDate: '2026-11-30', status: 'draft' } },
+    }
+    const next: CompanyData = {
+      ...two,
+      time: { e1: { ...two.time.e1, regular: 70 }, e2: { ...two.time.e2, regular: 9 } },
+      open: { ...two.open, '2026-11-30': { payDate: '2026-11-30', status: 'submitted' } },
+    }
+    const w = planWrites(two, next)
+    expect(w.map((x) => (x.kind === 'time' ? `time:${x.row.pay_date}:${x.row.employee_id}` : x.kind === 'run' ? `run:${x.row.pay_date}:${x.row.status}` : x.kind)))
+      .toEqual(['time:2026-11-13:e1', 'time:2026-11-30:e2', 'run:2026-11-30:submitted'])
+  })
+
+  it('moves an employee’s hours when their pay date changes', () => {
+    const next: CompanyData = { ...base, timeDates: { e1: '2026-11-12' }, open: { '2026-11-12': { payDate: '2026-11-12', status: 'draft' } } }
+    const w = planWrites(base, next)
+    expect(w).toEqual([expect.objectContaining({ kind: 'time', row: expect.objectContaining({ pay_date: '2026-11-12' }) })])
+  })
+
   it('writes nothing when nothing changed', () => {
     expect(planWrites(base, structuredClone(base))).toEqual([])
   })
@@ -64,15 +90,15 @@ describe('write planner', () => {
   })
 
   it('on submit saves hours before locking the run; on recall unlocks first', () => {
-    const submitted: CompanyData = { ...base, time: { e1: { ...base.time.e1, regular: 75 } }, current: { ...base.current, status: 'submitted' } }
+    const submitted: CompanyData = { ...base, time: { e1: { ...base.time.e1, regular: 75 } }, open: { '2026-11-13': { payDate: '2026-11-13', status: 'submitted' } } }
     expect(planWrites(base, submitted).map((x) => x.kind)).toEqual(['time', 'run'])
-    const recalled: CompanyData = { ...submitted, time: { e1: { ...base.time.e1, regular: 76 } }, current: { ...base.current, status: 'draft' } }
+    const recalled: CompanyData = { ...submitted, time: { e1: { ...base.time.e1, regular: 76 } }, open: { '2026-11-13': { payDate: '2026-11-13', status: 'draft' } } }
     expect(planWrites(submitted, recalled).map((x) => x.kind)).toEqual(['run', 'time'])
   })
 
   it('adds a new employee before their hours, and sends typed secrets separately', () => {
     const e2: Employee = { ...emp, id: 'e2', ssnFull: '987654321', bank: undefined, payMethod: 'client_check' }
-    const next = { ...base, employees: [emp, e2], time: { ...base.time, e2: { regular: 80, overtime: 0, cashTips: 0, cardTips: 0 } } }
+    const next = { ...base, employees: [emp, e2], time: { ...base.time, e2: { regular: 80, overtime: 0, cashTips: 0, cardTips: 0 } }, timeDates: { ...base.timeDates, e2: '2026-11-13' } }
     const w = planWrites(base, next)
     expect(w.map((x) => x.kind)).toEqual(['employee', 'secrets', 'time'])
     expect(w[0]).toMatchObject({ kind: 'employee', isNew: true })

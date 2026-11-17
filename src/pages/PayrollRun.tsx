@@ -9,14 +9,16 @@ import PaymentsTable from '../components/PaymentsTable'
 import PayStub from '../components/PayStub'
 import PayrollReview from '../components/PayrollReview'
 import { StatusBadge, StatusTimeline } from '../components/RunStatus'
-import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
+import { payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
+import FrequencyBadge from '../components/FrequencyBadge'
+import RunSwitcher from '../components/RunSwitcher'
 import { defaultTimeFor, receivesTips } from '../config/industries'
 import type { Check as CheckItem } from '../lib/checks'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
 import { jobLabel } from '../lib/labels'
 import { baseRateForEntry, effectiveEmployee, sumResults, tippedOvertimeRate } from '../lib/payroll'
 import { cashOutOf, timeLeft } from '../lib/runStatus'
-import { parseISODate, payPeriodFor } from '../lib/schedule'
+import { parseISODate } from '../lib/schedule'
 import { useChecks } from '../lib/useChecks'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
@@ -24,7 +26,6 @@ import { useStore } from '../store'
 import type { Employee, TimeEntry } from '../types'
 import { compareByName, fullName } from '../lib/names'
 
-const PERIODS = periodsPerYear[companySchedule.frequency]
 
 /** 표 안의 숫자 입력 — Enter/↑/↓로 같은 열의 위아래 칸으로 이동 */
 function CellInput({ value, onChange, money, row, col, label, disabled }: {
@@ -58,11 +59,12 @@ function RateInputCell({ e, entry, row, onChange, onSaveDefault }: {
 }) {
   const { t } = usePrefs()
   const salary = e.payType === 'salary'
-  const base = baseRateForEntry(e, companySchedule.frequency)
+  const freq = e.payFrequency ?? 'biweekly'
+  const base = baseRateForEntry(e, freq)
   const value = entry?.rate ?? base
   const changed = entry?.rate !== undefined && Math.abs(entry.rate - base) > 0.004
   const sub = salary
-    ? t(`연봉 ${formatCurrencyWhole(value * PERIODS)}`, `${formatCurrencyWhole(value * PERIODS)} / yr`)
+    ? t(`연봉 ${formatCurrencyWhole(value * periodsPerYear[freq])}`, `${formatCurrencyWhole(value * periodsPerYear[freq])} / yr`)
     : e.payType === 'tipped'
       ? t(`+ 팁 · OT ${formatCurrency(tippedOvertimeRate(value))}`, `+ tips · OT ${formatCurrency(tippedOvertimeRate(value))}`)
       : `OT ${formatCurrency(value * cfg.overtimeMultiplier)}`
@@ -112,7 +114,7 @@ export default function PayrollRun() {
   const { t, lang, locale } = usePrefs()
   const { session } = usePortal()
   const store = useStore()
-  const { employees, time, setTime, results, payDate, lastRun, upsertEmployee, status, locked, current, deadline, view, company } = store
+  const { employees, runEmployees, time, setTime, results, payDate, lastRun, upsertEmployee, status, locked, current, deadline, view, company, period, openRun } = store
   const checks = useChecks()
   const [step, setStep] = useState<1 | 2>(1)
   const [query, setQuery] = useState('')
@@ -124,14 +126,15 @@ export default function PayrollRun() {
   /** 팁 기능을 쓰는 회사이거나, 이번 회차에 팁이 이미 입력된 경우 팁 칸을 보여 줌 */
   const tipsOn = company.tipsEnabled || employees.some((e) => e.active && ((time[e.id]?.cashTips ?? 0) + (time[e.id]?.cardTips ?? 0) > 0))
 
-  const active = employees.filter((e) => e.active)
+  const active = runEmployees.filter((e) => e.active)
   const pay = parseISODate(payDate)
-  const periodStart = payPeriodFor(companySchedule.frequency, pay).start
+  const periodStart = parseISODate(period.start)
+  const periodEnd = parseISODate(period.end)
   const due = timeLeft(deadline, now, t)
   const totals = sumResults(results)
   const blocking = checks.filter((c) => c.severity === 'critical').length
   const resultOf = (id: string) => results.find((r) => r.employeeId === id)!
-  const eff = (e: Employee) => effectiveEmployee(e, time[e.id], companySchedule.frequency)
+  const eff = (e: Employee) => effectiveEmployee(e, time[e.id], e.payFrequency ?? 'biweekly')
   const saveRateAsDefault = (e: Employee) => {
     upsertEmployee({ ...e, rate: eff(e).rate }, me)
     setTime(e.id, { rate: undefined })
@@ -164,10 +167,12 @@ export default function PayrollRun() {
       <div>
         <p className="eyebrow">{company.dba} · {t('정기 급여', 'Regular payroll')}</p>
         <h1>{t('급여 실행', 'Run payroll')} <StatusBadge status={status} /></h1>
+        <RunSwitcher />
+        <p className="run-freqs">{openRun.schedules.map(({ schedule: sc }) => <FrequencyBadge key={sc.id} frequency={sc.frequency} name={sc.name || undefined} detail size="md" />)}</p>
         <div className="run-meta">
           <span>
             <CalendarDays size={15} aria-hidden /> {t('급여 기간', 'Pay period')}{' '}
-            <strong>{formatDate(periodStart, locale, { month: 'short', day: 'numeric' })} – {formatDate(pay, locale, { month: 'short', day: 'numeric' })}</strong>
+            <strong>{formatDate(periodStart, locale, { month: 'short', day: 'numeric' })} – {formatDate(periodEnd, locale, { month: 'short', day: 'numeric' })}</strong>
           </span>
           <span>{t('지급일', 'Pay date')} <strong>{formatDate(pay, locale)}</strong></span>
           {!locked && (

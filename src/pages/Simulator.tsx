@@ -2,7 +2,7 @@ import { HandCoins, Lightbulb, PiggyBank, RotateCcw } from 'lucide-react'
 import { useMemo, useState, type CSSProperties } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
-import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
+import { payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
 import { defaultTimeFor } from '../config/industries'
 import { formatCurrency, formatPercent, formatSigned } from '../lib/format'
 import { jobLabel } from '../lib/labels'
@@ -40,7 +40,7 @@ export default function Simulator() {
   const [overtime, setOvertime] = useState<number | null>(null)
   const [tipsPerHour, setTipsPerHour] = useState<number | null>(null)
 
-  const freq = companySchedule.frequency
+  const freq = employee?.payFrequency ?? 'biweekly'
   const periods = periodsPerYear[freq]
 
   const sim = useMemo(() => {

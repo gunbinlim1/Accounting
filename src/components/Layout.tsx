@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { firmName } from '../lib/supabase'
 import { statusTone } from '../lib/runStatus'
-import { currentPayDate, usePortal } from '../portal'
+import { usePortal } from '../portal'
+import { firstOpen } from '../lib/companyData'
 import { usePrefs } from '../prefs'
 import { CompanyProvider, useStore } from '../store'
 import CommandPalette, { type Command } from './CommandPalette'
@@ -193,7 +194,6 @@ export function FirmLayout() {
   const { t } = usePrefs()
   const { session, companies } = usePortal()
   const navigate = useNavigate()
-  const payDate = currentPayDate()
   if (!session) return <Navigate to="/firm/login" replace />
   if (session.role !== 'firm') return <Navigate to={session.role === 'employee' ? '/me' : '/'} replace />
 
@@ -224,7 +224,7 @@ export function FirmLayout() {
         <div className="side-section">
           <span className="side-label">{t('고객사', 'Clients')}</span>
           {companies.map((c) => {
-            const status = c.current.payDate === payDate ? c.current.status : 'draft'
+            const status = firstOpen(c)?.status ?? 'draft'
             return (
               <NavLink key={c.company.id} to={`/firm/c/${c.company.id}`} className="side-client">
                 <span className={`status-dot ${statusTone(status)}`} />
