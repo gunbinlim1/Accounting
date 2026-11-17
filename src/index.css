@@ -1463,3 +1463,35 @@ h1 .status-badge { margin-left: 0.5rem; font-size: 0.8rem; position: relative; t
 }
 @media print { .chat-fab, .chat-dock { display: none; } }
 @media (max-width: 960px) { .next-run.tone-next { grid-template-columns: 1fr; } }
+
+/* ───────── 제출한 신고서 PDF (세금·신고) ───────── */
+.segmented button svg { vertical-align: -2px; }
+.filed-card .card-head h2 { display: flex; align-items: center; gap: 0.45rem; }
+.filed-empty { padding: 1.4rem 1rem; text-align: center; border: 1px dashed var(--border); border-radius: 12px; margin-top: 0.8rem; }
+.filed-year { margin-top: 1.1rem; }
+.filed-year h3 { font-size: 1.05rem; margin: 0 0 0.3rem; }
+.filed-year h4 { font-size: 0.74rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin: 0.7rem 0 0.35rem; }
+.filing-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.filing-row { display: flex; align-items: center; gap: 0.9rem; padding: 0.7rem 0.9rem; border-top: 1px solid var(--border); }
+.filing-row:first-child { border-top: 0; }
+.filing-form { flex: none; min-width: 5.6rem; text-align: center; font-size: 0.78rem; font-weight: 800; padding: 0.3rem 0.5rem; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
+.filing-form.f-C3 { background: var(--good-soft); color: var(--good); }
+.filing-form.f-940, .filing-form.f-8027 { background: var(--warn-soft); color: var(--warn); }
+.filing-form.f-W2, .filing-form.f-W3 { background: var(--info-soft); color: var(--info); }
+.filing-form.f-other { background: var(--surface-2); color: var(--text-2); }
+.filing-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.filing-info small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filing-actions { flex: none; display: flex; gap: 0.3rem; }
+.filed-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.6rem 0.9rem; margin-bottom: 1rem; border-radius: 12px; background: var(--good-soft); color: var(--good); font-weight: 650; font-size: 0.9rem; }
+.filing-upload { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); align-items: end; gap: 0.6rem 0.8rem; margin: 0.9rem 0 0.4rem; padding: 0.9rem; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); }
+.filing-upload .file-field { grid-column: span 2; }
+.filing-upload .chat-error { grid-column: 1 / -1; border-radius: 8px; }
+@media (max-width: 560px) {
+  .filing-row { flex-wrap: wrap; }
+  .filing-actions { width: 100%; }
+  .filing-actions .btn.primary { flex: 1; justify-content: center; }
+  .filing-upload .file-field { grid-column: 1 / -1; }
+}
+.filing-upload select, .filing-upload input:not([type='file']) { min-height: 42px; padding: 0.55rem 0.7rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); font: inherit; color: inherit; }
+.filing-upload input[type='file'] { padding: 0.45rem; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); font: inherit; font-size: 0.85rem; min-height: 42px; }
+.filing-upload .btn { min-height: 42px; justify-content: center; }

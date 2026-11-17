@@ -1,6 +1,6 @@
 # CLAUDE.md — Payday 고객 포털 (작업 인수인계)
 
-새 세션은 이 파일부터 읽으세요. 지금까지의 대화·결정·구조·남은 일을 정리한 것입니다. (마지막 정리: 2026-11-17 — 홈 급여 일정표·고객 채팅(AI 첫 답변) 추가)
+새 세션은 이 파일부터 읽으세요. 지금까지의 대화·결정·구조·남은 일을 정리한 것입니다. (마지막 정리: 2026-11-17 — 홈 급여 기간 강조·다음 회차, 고객 채팅(AI 첫 답변), 신고서 PDF 보관함)
 
 ## 사용자·목적
 - 사용자: 텍사스 CPA 회계법인 **Jae Jin Yang CPA PC** (담당 Gunbin Lim, gunbin.lim@yangdeancpa.com). **응답은 한국어.** 비개발자이므로 설명은 쉬운 말로, 할 일은 단계별로.
@@ -51,11 +51,12 @@
   `insert into public.firm_staff (user_id, name, title) select id, '<이름>', '<직함>' from auth.users where email = '<이메일>' and email_confirmed_at is not null;`
 
 ## 데이터·보안 구조 (Supabase)
-- 마이그레이션(모두 실제 프로젝트에 적용됨): `20261111000000_payroll_schema.sql`, `20261111010000_client_signup_notice.sql`, `20261116000000_client_chat.sql`, `20261116010000_client_chat_grants.sql`. 새 DB 변경은 파일로 추가하고 `mcp__Supabase__apply_migration`으로 적용.
+- 마이그레이션(모두 실제 프로젝트에 적용됨): `20261111000000_payroll_schema.sql`, `20261111010000_client_signup_notice.sql`, `20261116000000_client_chat.sql`, `20261116010000_client_chat_grants.sql`, `20261117000000_filed_returns.sql`. 새 DB 변경은 파일로 추가하고 `mcp__Supabase__apply_migration`으로 적용.
 - 테이블: companies(+firm_seen_at), company_members, firm_staff, employees, employee_secrets(암호화), time_entries, pay_runs, pay_results, payments, tax_deposits, activity, audit_log, 비공개 버킷 `payroll-docs/<company_id>/…`.
 - RLS: 회계법인 전체 / 고객 자기 회사 / 직원 본인 기록·급여 결과만(스냅샷·근무 입력은 못 봄). **모든 접근 MFA(aal2) 필수.** 고객 상태 변경(작성 중↔제출만)·제출 잠금·활동 기록 작성자·firm_seen_at은 트리거로 강제. 주요 변경은 audit_log.
 - SSN·라우팅·계좌 전체 번호: `set_employee_secrets` RPC로 pgcrypto 암호화(키 = Vault `payroll_field_key`, 서버에서 생성, 값은 어디에도 출력 안 함 — **잃으면 복구 불가**). 읽기는 회계법인만 `get_employee_secrets`(열람 기록). 화면엔 뒤 4자리·`onFile`.
 - **채팅**: `chat_messages`(sender client/firm/ai, 수정·삭제 불가, 작성자·시각 트리거 고정, ai는 service_role만) + `chat_threads`(handoff_at = 담당자 연결 중, 읽음 시각). RPC `chat_request_human`·`chat_return_to_ai`(firm만)·`chat_mark_read`. 회계법인이 답장하면 자동으로 담당자 모드(AI 멈춤). Realtime 발행에 두 테이블 추가. 고객사 직원(employee 역할)은 채팅 못 봄.
+- **신고서 보관함** `filings`(form 941/C-3/940/W-2/W-3/8027/other, period 'YYYY-Qn' 또는 'YYYY', path는 `<company_id>/filings/…` 강제, employee_id 선택=직원별 W-2): 회계법인만 추가·삭제(트리거가 firm 확인·등록자 고정·고객 활동 기록 'filing' 남김), 고객 대표는 보기·내려받기. 저장소 insert/update 정책: `filings` 폴더는 firm만. 고객사 직원(employee)은 못 봄 — 직원 포털에서 본인 W-2 PDF 받기는 아직 없음(후보).
 - **AI 답변** `supabase/functions/chat-ai/index.ts`: 고객 토큰으로 권한 확인 → handoff 아니고 마지막이 고객 메시지일 때만 → claude-opus-5-5(effort low, JSON 스키마 {reply, handoff, handoff_reason}, server-side fallback "default") → service_role로 ai 메시지 저장, handoff면 담당자 연결. 회사당 시간당 30건 제한. AI에는 회사명·업종·일정·회차 상태·대화만 보냄(SSN·계좌·급여액 없음). 급여 주기 상수는 `payrollConfig.companySchedule`과 맞춰야 함. 함수 수정 시 `deploy_edge_function`으로 재배포(파일 내용 그대로).
 - Supabase security advisor 경고는 의도된 설계 (SECURITY DEFINER RPC 7개 — 채팅 3개 포함 — 는 함수 안에서 권한 확인, employee_secrets 정책 없음 = 직접 접근 차단). 단 Leaked password protection 꺼짐 경고는 사용자가 켜야 함.
 - (이전 기록) Supabase security advisor 경고 5건은 의도된 설계(employee_secrets 정책 없음 = 직접 접근 차단, SECURITY DEFINER RPC 4개는 함수 안에서 권한 확인).
@@ -80,7 +81,9 @@
 
 ## 코드 구조
 - React 19 + TypeScript + Vite + react-router 7, lucide-react, vitest, oxlint, @supabase/supabase-js, pdfjs-dist, pdf-lib, read-excel-file.
-- 홈(`Dashboard`) 상단 히어로 아래 **다음 급여 일정** `src/components/PayrollSchedule.tsx` (사용자 요청: 전체 일정 X, **스케줄마다 다음 급여일 한 줄만**). 파일 안 `schedules` 배열(지금은 회사 스케줄 1개, 여러 스케줄 생기면 추가) → 줄마다 상태(큰 글씨·아이콘·색: 파랑=입력할 차례, 주황=수정 요청/마감 임박, 빨강=마감 지남, 회색=회계법인 확인 중, 초록=처리 완료) · 처리 마감 · 급여 기간 · 지급일(D-n) · 버튼. 처리 안 된 지난 회차는 행 대신 빨간 알림 한 줄 + "문의하기"(채팅). 계산은 `src/lib/payrollSchedule.ts` `buildSchedule`. 휴대폰은 항목을 '이름 — 값' 줄로 쌓음.
+- 홈(`Dashboard`) **이번 회차** 히어로: 급여 기간을 큰 테두리 상자로 맨 앞에(사용자 요청), 그 아래 지급일·D-day, 진행 단계. **다음 급여 일정** `src/components/PayrollSchedule.tsx`: 이번 회차가 아니라 **그 다음 회차**를 스케줄마다 한 줄(급여 기간·처리 마감·지급일). 파일 안 `schedules` 배열(지금 1개). 처리 안 된 지난 회차는 빨간 알림 한 줄 + "문의하기"(채팅). 계산 `src/lib/payrollSchedule.ts` `buildSchedule`.
+- 급여 내역(`History`) 표에 "급여 기간" 열, CSV에 Period start/end. 급여명세서(`PayStub` `payDate` prop) 맨 위에 급여 기간·지급일.
+- 세금·신고(`Taxes`) "제출한 신고서 PDF" 탭 = `src/components/FiledReturns.tsx`(연도별·분기/연간 목록, PDF 받기 = 60초 서명 링크; 회계법인은 올리기 폼·삭제). 분기 탭·W-2 탭에는 해당 기간 신고서 바로 받기 줄(`compact`). 데이터 `src/lib/filings.ts`.
 - 채팅 UI `src/components/chat/`: `ChatDock`(고객 화면 오른쪽 아래 버튼·창, `openChat()` 이벤트), `ChatPanel`(공용 대화 화면), `useChat`(불러오기·Realtime 구독 + 20초 폴링·보내기·AI 요청), `FirmChatInbox`(회계법인 대기열 상단 "고객 채팅"). 회계법인 `/firm/c/:id/chat` 탭. 데이터 `src/lib/chat.ts`.
 - 페이지: 공개 `/login` `/signup`(고객 계정) `/register`(직원 계정) `/firm/login` `/firm/register` `/auth/confirm` · 로그인 후 `/setup`(회사 포털 만들기) · 고객 `/` `/run` `/employees` `/employees/new|:id` `/history` `/taxes` `/company` `/simulator` · 회계법인 `/firm`(대기열·새 고객사 알림) `/firm/settings` `/firm/c/:id`(+`/taxes` `/history`, "고객사 삭제" 버튼) · 직원 `/me`.
 - `src/store.tsx`: `CompanyProvider`/`useStore()` (제출/취소/검토/수정요청/처리/납부/위임 서명). `src/lib`: payroll·federalWithholding·taxes·payments·checks·compliance·docExtract·companyDocs·bank·names·ytd·compute·csv.
@@ -103,6 +106,7 @@
 3. AI 문서 인식 서비스, 수표 인쇄 방식, 고객별 급여 주기 허용 여부, 업종별 기본 시급 검토.
 
 ## 다음 후보 작업
+- 직원 포털에서 본인 W-2 PDF 받기, 신고서 등록 시 고객 이메일 알림.
 - 채팅: 새 메시지 이메일/푸시 알림, 파일 첨부, AI 답변 품질 점검(실제 대화 표본으로), 지난 회차(off-cycle) 처리 기능.
 - 회계법인 관리자 화면(직원 승인), 새 고객사 이메일 알림, SMTP·초대/안내 메일.
 - 기획서에 Supabase 전환·가입 구조·회계법인 로그인 반영.

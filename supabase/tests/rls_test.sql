@@ -210,6 +210,43 @@ select public.chat_return_to_ai((select ca from ids limit 1));
 select test.ok((select handoff_at is null and firm_read_at is not null from public.chat_threads), 'firm returns the chat to AI');
 reset role;
 
+-- ── 신고서 보관함: 회계법인만 올리고, 고객은 내려받기만
+select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
+set role authenticated;
+insert into storage.objects (bucket_id, name) values ('payroll-docs', (select ca from ids limit 1)::text || '/filings/941-2026Q4.pdf');
+insert into public.filings (company_id, form, period, file_name, path, filed_on)
+values ((select ca from ids limit 1), '941', '2026-Q4', '941-2026Q4.pdf', (select ca from ids limit 1)::text || '/filings/941-2026Q4.pdf', '2027-01-20');
+select test.ok((select uploaded_by = auth.uid() from public.filings), 'filing uploader set by the server');
+select test.ok((select count(*) = 1 from public.activity where kind = 'filing' and actor = 'firm'), 'filing shows in the client activity');
+select test.denied($$insert into public.filings (company_id, form, period, file_name, path) values ((select ca from ids limit 1), '941', '2026-Q3', 'x.pdf', 'elsewhere/x.pdf')$$, 'filing file must be in the company filings folder');
+select test.denied($$insert into public.filings (company_id, form, period, file_name, path) values ((select ca from ids limit 1), '941', 'Q3', 'x.pdf', (select ca from ids limit 1)::text || '/filings/x.pdf')$$, 'filing period must be YYYY or YYYY-Qn');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
+set role authenticated;
+select test.ok((select count(*) = 1 from public.filings), 'client sees its filed returns');
+select test.ok((select count(*) = 1 from storage.objects where name like '%/filings/%'), 'client can read the filed PDF');
+select test.denied($$insert into public.filings (company_id, form, period, file_name, path) values ((select ca from ids limit 1), '941', '2026-Q3', 'x.pdf', (select ca from ids limit 1)::text || '/filings/x.pdf')$$, 'client cannot add filings');
+select test.denied($$insert into storage.objects (bucket_id, name) values ('payroll-docs', (select ca from ids limit 1)::text || '/filings/fake.pdf')$$, 'client cannot upload into the filings folder');
+select test.denied($$update public.filings set period = '2025'$$, 'client cannot edit filings');
+delete from public.filings;  -- RLS: 0행
+select test.ok((select count(*) = 1 from public.filings), 'client cannot delete filings');
+insert into storage.objects (bucket_id, name) values ('payroll-docs', (select ca from ids limit 1)::text || '/company/ss4.pdf');
+select test.ok(true, 'client still uploads company documents');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000b', 'owner-b@b.example');
+set role authenticated;
+select test.ok((select count(*) = 0 from public.filings), 'B cannot see A''s filings');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000e', 'emp@mail.example');
+set role authenticated;
+select test.ok((select count(*) = 0 from public.filings), 'employees cannot see company filings');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
+set role authenticated;
+delete from public.filings;
+select test.ok((select count(*) = 0 from public.filings), 'firm deletes a filing');
+reset role;
+
 -- ── 회계법인이 고객 삭제
 select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
 set role authenticated;

@@ -1,6 +1,8 @@
-import { CheckCircle2, FileText, Landmark, ShieldCheck, TriangleAlert } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { CheckCircle2, FileCheck2, FileText, Landmark, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import FiledReturns from '../components/FiledReturns'
 import W2Preview from '../components/W2Preview'
+import { ANNUAL_FORMS, QUARTERLY_FORMS, type Filing } from '../lib/filings'
 import { formatCurrency, formatDate, initials } from '../lib/format'
 import { jobLabel } from '../lib/labels'
 import { roundCents } from '../lib/money'
@@ -24,7 +26,9 @@ export default function Taxes() {
   const [today] = useState(() => new Date().toISOString().slice(0, 10))
   const year = Number(today.slice(0, 4))
   const [q, setQ] = useState<Quarter>(quarterOf(today))
-  const [tab, setTab] = useState<'deposits' | 'quarter' | 'w2'>('deposits')
+  const [tab, setTab] = useState<'deposits' | 'quarter' | 'w2' | 'filed'>('deposits')
+  const quarterFiled = useCallback((f: Filing) => f.period === `${year}-Q${q}` && QUARTERLY_FORMS.includes(f.form), [year, q])
+  const yearFiled = useCallback((f: Filing) => f.period === String(year) && ANNUAL_FORMS.includes(f.form), [year])
   const [w2Emp, setW2Emp] = useState<string | null>(null)
   const auth = company.authorizations ?? { form8655: 'pending', twcAgent: 'pending', bankDebit: 'pending' }
   const authReady = auth.form8655 === 'signed' && auth.twcAgent === 'signed' && auth.bankDebit === 'signed'
@@ -79,6 +83,7 @@ export default function Taxes() {
         <button className={tab === 'deposits' ? 'on' : ''} onClick={() => setTab('deposits')}>{t('납부 일정', 'Payments')}</button>
         <button className={tab === 'quarter' ? 'on' : ''} onClick={() => setTab('quarter')}>{t('분기 신고 (941·C-3·FUTA)', 'Quarterly (941·C-3·FUTA)')}</button>
         <button className={tab === 'w2' ? 'on' : ''} onClick={() => setTab('w2')}>{t('W-2', 'W-2')}</button>
+        <button className={tab === 'filed' ? 'on' : ''} onClick={() => setTab('filed')}><FileCheck2 size={15} aria-hidden /> {t('제출한 신고서 PDF', 'Filed returns (PDF)')}</button>
       </div>
 
       {tab === 'deposits' && (
@@ -141,6 +146,7 @@ export default function Taxes() {
           <div className="segmented">
             {([1, 2, 3, 4] as Quarter[]).map((x) => <button key={x} className={q === x ? 'on' : ''} onClick={() => setQ(x)}>{year} Q{x}</button>)}
           </div>
+          <FiledReturns companyId={company.id} employees={employees} isFirm={isFirm} filter={quarterFiled} compact />
           <div className="grid-2">
             <section className="card form-941">
               <div className="card-head"><h2><FileText size={18} aria-hidden /> Form 941 · Q{q}</h2><span className="tag info">{t('기한', 'Due')} {d(f941.due)}</span></div>
@@ -189,6 +195,7 @@ export default function Taxes() {
         </>
       )}
 
+      {tab === 'w2' && <FiledReturns companyId={company.id} employees={employees} isFirm={isFirm} filter={yearFiled} compact />}
       {tab === 'w2' && (
         <div className="w2-layout">
           <section className="card list-card">
@@ -212,6 +219,8 @@ export default function Taxes() {
           {selected && <W2Preview w2={w2For(runs, selected.id, year)} employee={selected} company={company} year={year} />}
         </div>
       )}
+
+      {tab === 'filed' && <FiledReturns companyId={company.id} employees={employees} isFirm={isFirm} />}
 
       {!authReady && (
         <p className="muted small warn-line"><TriangleAlert size={14} aria-hidden /> {t('위임 서명이 끝나지 않으면 회계법인이 대리 신고·납부를 할 수 없어요. 회사 정보에서 서명해 주세요.', 'Your CPA can’t file or pay until all authorizations are signed. Sign them under Company.')}</p>

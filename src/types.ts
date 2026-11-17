@@ -331,7 +331,7 @@ export interface ActivityEvent {
   actorName: string
   ko: string
   en: string
-  kind: 'submit' | 'recall' | 'review' | 'changes' | 'processed' | 'employee' | 'settings' | 'reminder'
+  kind: 'submit' | 'recall' | 'review' | 'changes' | 'processed' | 'employee' | 'settings' | 'reminder' | 'filing'
 }
 
 /** 제출 시점에 고정한 급여 자료 — 제출 후 직원 정보가 바뀌어도 검토 대상은 그대로 */
