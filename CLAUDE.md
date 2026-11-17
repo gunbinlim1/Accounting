@@ -80,7 +80,7 @@
 
 ## 코드 구조
 - React 19 + TypeScript + Vite + react-router 7, lucide-react, vitest, oxlint, @supabase/supabase-js, pdfjs-dist, pdf-lib, read-excel-file.
-- 홈(`Dashboard`) 상단 히어로 아래 **급여 일정표** `src/components/PayrollSchedule.tsx` + `src/lib/payrollSchedule.ts`(`buildSchedule`): 가입 후 시작됐는데 처리 안 된 지난 회차(미처리, 최대 3) · 이번 회차(상태·남은 시간·급여 입력 버튼) · 다음 3회차. 열: 처리 마감 / 상태 / 급여 주기 / 급여 기간(직전 지급일 다음 날~지급일, `payPeriodFor`) / 지급일. 모바일은 카드형. 미처리 행 "문의" → 채팅 열기.
+- 홈(`Dashboard`) 상단 히어로 아래 **다음 급여 일정** `src/components/PayrollSchedule.tsx` (사용자 요청: 전체 일정 X, **스케줄마다 다음 급여일 한 줄만**). 파일 안 `schedules` 배열(지금은 회사 스케줄 1개, 여러 스케줄 생기면 추가) → 줄마다 상태(큰 글씨·아이콘·색: 파랑=입력할 차례, 주황=수정 요청/마감 임박, 빨강=마감 지남, 회색=회계법인 확인 중, 초록=처리 완료) · 처리 마감 · 급여 기간 · 지급일(D-n) · 버튼. 처리 안 된 지난 회차는 행 대신 빨간 알림 한 줄 + "문의하기"(채팅). 계산은 `src/lib/payrollSchedule.ts` `buildSchedule`. 휴대폰은 항목을 '이름 — 값' 줄로 쌓음.
 - 채팅 UI `src/components/chat/`: `ChatDock`(고객 화면 오른쪽 아래 버튼·창, `openChat()` 이벤트), `ChatPanel`(공용 대화 화면), `useChat`(불러오기·Realtime 구독 + 20초 폴링·보내기·AI 요청), `FirmChatInbox`(회계법인 대기열 상단 "고객 채팅"). 회계법인 `/firm/c/:id/chat` 탭. 데이터 `src/lib/chat.ts`.
 - 페이지: 공개 `/login` `/signup`(고객 계정) `/register`(직원 계정) `/firm/login` `/firm/register` `/auth/confirm` · 로그인 후 `/setup`(회사 포털 만들기) · 고객 `/` `/run` `/employees` `/employees/new|:id` `/history` `/taxes` `/company` `/simulator` · 회계법인 `/firm`(대기열·새 고객사 알림) `/firm/settings` `/firm/c/:id`(+`/taxes` `/history`, "고객사 삭제" 버튼) · 직원 `/me`.
 - `src/store.tsx`: `CompanyProvider`/`useStore()` (제출/취소/검토/수정요청/처리/납부/위임 서명). `src/lib`: payroll·federalWithholding·taxes·payments·checks·compliance·docExtract·companyDocs·bank·names·ytd·compute·csv.
