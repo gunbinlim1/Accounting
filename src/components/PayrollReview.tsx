@@ -38,7 +38,7 @@ export function RateCell({ e, entry }: { e: Employee; entry?: TimeEntry }) {
 }
 
 /** 총 출금액, 경고, 직원별 상세 — 고객 제출 화면과 회계법인 검토 화면에서 공통 사용 */
-export default function PayrollReview({ view, checks }: { view: RunView; checks: Check[] }) {
+export default function PayrollReview({ view, checks, payDate }: { view: RunView; checks: Check[]; payDate?: string }) {
   const { t } = usePrefs()
   const [open, setOpen] = useState<string | null>(null)
   const [alertsPref, setAlertsPref] = useState<boolean | null>(null)
@@ -138,7 +138,7 @@ export default function PayrollReview({ view, checks }: { view: RunView; checks:
                     {isOpen && (
                       <tr className="detail-row">
                         <td colSpan={8}>
-                          <PayStub employee={effectiveEmployee(e, view.time[e.id], companySchedule.frequency)} result={r} time={view.time[e.id]} />
+                          <PayStub employee={effectiveEmployee(e, view.time[e.id], companySchedule.frequency)} result={r} time={view.time[e.id]} payDate={payDate} />
                         </td>
                       </tr>
                     )}

@@ -1,5 +1,6 @@
 import { companySchedule, payrollConfig as cfg, periodsPerYear } from '../config/payrollConfig'
-import { formatCurrency, formatCurrencyWhole, formatPercent } from '../lib/format'
+import { formatCurrency, formatCurrencyWhole, formatDate, formatPercent } from '../lib/format'
+import { parseISODate, payPeriodFor } from '../lib/schedule'
 import { tipCreditRate, tippedOvertimeRate } from '../lib/payroll'
 import { filingLabel } from '../lib/labels'
 import { segmentsOf } from '../lib/segments'
@@ -12,6 +13,8 @@ interface Props {
   employee: Employee
   result: PayrollResult
   time?: TimeEntry
+  /** 지급일 YYYY-MM-DD — 있으면 맨 위에 급여 기간·지급일 표시 */
+  payDate?: string
 }
 
 interface Line {
@@ -21,8 +24,10 @@ interface Line {
 }
 
 /** 각 항목을 쉬운 말로 설명하는 급여명세서 */
-export default function PayStub({ employee: e, result: r, time }: Props) {
-  const { t } = usePrefs()
+export default function PayStub({ employee: e, result: r, time, payDate }: Props) {
+  const { t, locale } = usePrefs()
+  const period = payDate ? payPeriodFor(companySchedule.frequency, parseISODate(payDate)) : null
+  const md = (d: Date) => formatDate(d, locale, { month: 'short', day: 'numeric', year: 'numeric' })
   const periods = periodsPerYear[companySchedule.frequency]
   const reg = time?.regular ?? 0
   const ot = time?.overtime ?? 0
@@ -74,6 +79,12 @@ export default function PayStub({ employee: e, result: r, time }: Props) {
 
   return (
     <div className="stub">
+      {period && (
+        <dl className="stub-dates">
+          <div><dt>{t('급여 기간', 'Pay period')}</dt><dd>{md(period.start)} – {md(period.end)}</dd></div>
+          <div><dt>{t('지급일', 'Pay date')}</dt><dd>{md(period.end)}</dd></div>
+        </dl>
+      )}
       <div className="stub-head">
         <div>
           <div className="muted small">{t('총급여 (팁 포함)', 'Gross pay (incl. tips)')}</div>

@@ -119,7 +119,7 @@ function Review() {
         </section>
       </div>
 
-      <PayrollReview view={view} checks={checks} />
+      <PayrollReview view={view} checks={checks} payDate={payDate} />
 
       <section className="card mini-facts">
         <h2>{t('고객 정보', 'Client')}</h2>

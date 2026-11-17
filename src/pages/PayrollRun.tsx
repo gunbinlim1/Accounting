@@ -234,7 +234,7 @@ export default function PayrollRun() {
           <PaymentsTable payments={store.approvedForPayDate.payments} employees={view.employees} payDate={payDate} />
         )}
 
-        <PayrollReview view={view} checks={checks} />
+        <PayrollReview view={view} checks={checks} payDate={payDate} />
 
         {status === 'processed' && (
           <section className="print-stubs">
@@ -243,7 +243,7 @@ export default function PayrollRun() {
               return (
                 <div key={r.employeeId} className="print-stub">
                   <h2>{fullName(e)} · {formatDate(pay, locale)}</h2>
-                  <PayStub employee={e} result={r} time={view.time[e.id]} />
+                  <PayStub employee={e} result={r} time={view.time[e.id]} payDate={payDate} />
                 </div>
               )
             })}
@@ -447,7 +447,7 @@ export default function PayrollRun() {
     <div className="page run-page">
       {header}
       {firmNote}
-      <PayrollReview view={view} checks={checks} />
+      <PayrollReview view={view} checks={checks} payDate={payDate} />
       <p className="muted small submit-note">
         <Info size={14} aria-hidden />
         {t(

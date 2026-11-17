@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarDays, Clock, HandCoins, Landmark, MessageSquareWarning, PiggyBank, Wallet } from 'lucide-react'
+import { ArrowRight, CalendarDays, CalendarRange, Clock, HandCoins, Landmark, MessageSquareWarning, PiggyBank, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
@@ -26,6 +26,7 @@ export default function Dashboard() {
   const pay = parseISODate(payDate)
   const daysLeft = daysBetween(now, pay)
   const periodStart = payPeriodFor(companySchedule.frequency, pay).start
+  const periodDays = daysBetween(periodStart, pay) + 1
   const due = timeLeft(deadline, now, t)
   const totals = sumResults(view.results)
   const centsHome = totals.gross > 0 ? Math.round(((totals.net + totals.cashTips) / totals.gross) * 100) : 0
@@ -64,14 +65,21 @@ export default function Dashboard() {
       <section className="hero card">
         <div className="hero-main">
           <span className="eyebrow">{t('이번 회차', 'This pay period')} · <StatusBadge status={status} /></span>
-          <div className="hero-date">
-            {formatDate(pay, locale)}
+          <div className="hero-period">
+            <span className="hp-label"><CalendarRange size={16} aria-hidden /> {t('급여 기간', 'Pay period')}</span>
+            <strong className="hp-range">
+              {formatDate(periodStart, locale, { month: 'long', day: 'numeric', weekday: 'short' })}
+              <span className="hp-dash" aria-hidden>–</span>
+              {formatDate(pay, locale, { month: 'long', day: 'numeric', weekday: 'short' })}
+            </strong>
+            <span className="hp-meta">{t(`${periodDays}일 · ${frequencyLabel(companySchedule.frequency, t)}`, `${periodDays} days · ${frequencyLabel(companySchedule.frequency, t)}`)}</span>
+          </div>
+          <div className="hero-paydate">
+            <span>{t('지급일', 'Pay date')}</span>
+            <strong>{formatDate(pay, locale)}</strong>
             <span className="dday">{daysLeft === 0 ? t('오늘 지급', 'Pays today') : `D-${daysLeft}`}</span>
           </div>
           <StatusTimeline status={status} submittedAt={current.submittedAt} />
-          <p className="muted small">
-            {t('급여 기간', 'Pay period')} {formatDate(periodStart, locale, { month: 'short', day: 'numeric' })} – {formatDate(pay, locale, { month: 'short', day: 'numeric' })} · {frequencyLabel(companySchedule.frequency, t)} · {t('텍사스', 'Texas')}
-          </p>
         </div>
         <div className="hero-cta">
           {(status === 'draft' || status === 'changes_requested') && (

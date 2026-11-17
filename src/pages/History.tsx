@@ -7,6 +7,7 @@ import { downloadCsv } from '../lib/csv'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
 import { jobLabel } from '../lib/labels'
 import { effectiveEmployee, sumResults } from '../lib/payroll'
+import { parseISODate, payPeriodFor, toISODate } from '../lib/schedule'
 import { quarterOf } from '../lib/taxes'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
@@ -29,6 +30,11 @@ export default function History() {
     return e ? fullName(e) : id
   }
   const d = (iso: string, o?: Intl.DateTimeFormatOptions) => formatDate(new Date(`${iso}T00:00`), locale, o ?? { month: 'short', day: 'numeric' })
+  const periodOf = (payDate: string) => payPeriodFor(companySchedule.frequency, parseISODate(payDate))
+  const periodText = (payDate: string) => {
+    const p = periodOf(payDate)
+    return `${formatDate(p.start, locale, { month: 'short', day: 'numeric' })} – ${formatDate(p.end, locale, { month: 'short', day: 'numeric' })}`
+  }
 
   // 분기별 묶음 (최근 분기 먼저)
   const quarters = [4, 3, 2, 1].map((q) => ({ q, runs: yearRuns.filter((r) => quarterOf(r.payDate) === q) })).filter((x) => x.runs.length)
@@ -45,8 +51,8 @@ export default function History() {
   }, [yearRuns])
 
   const exportCsv = () => {
-    const rows = [['Pay date', 'Employee', 'Gross', 'Federal W/H', 'Social Security', 'Medicare', '401(k)', 'Fringe', 'Net pay', 'Employer taxes']]
-    for (const r of yearRuns) for (const x of r.results) rows.push([r.payDate, empName(x.employeeId), x.grossPay, x.federalWithholding, x.socialSecurity, x.medicare, x.pretaxDeductions, x.fringeTotal ?? 0, x.netPay, x.employerTaxes].map(String))
+    const rows = [['Pay date', 'Period start', 'Period end', 'Employee', 'Gross', 'Federal W/H', 'Social Security', 'Medicare', '401(k)', 'Fringe', 'Net pay', 'Employer taxes']]
+    for (const r of yearRuns) for (const x of r.results) rows.push([r.payDate, toISODate(periodOf(r.payDate).start), toISODate(periodOf(r.payDate).end), empName(x.employeeId), x.grossPay, x.federalWithholding, x.socialSecurity, x.medicare, x.pretaxDeductions, x.fringeTotal ?? 0, x.netPay, x.employerTaxes].map(String))
     downloadCsv(`${company.dba.replace(/\W+/g, '-')}-payroll-${year}.csv`, rows.map((r) => r.join(',')).join('\n'))
   }
 
@@ -91,6 +97,7 @@ export default function History() {
                 <thead>
                   <tr>
                     <th>{t('지급일', 'Pay date')}</th>
+                    <th>{t('급여 기간', 'Pay period')}</th>
                     <th className="num">{t('인원', 'People')}</th>
                     <th className="num">{t('총급여', 'Gross')}</th>
                     <th className="num">{t('직원 입금', 'Net pay')}</th>
@@ -107,6 +114,7 @@ export default function History() {
                       <Fragment key={r.id}>
                         <tr className={`clickable${isOpen ? ' open' : ''}`} onClick={() => setOpen(isOpen ? null : r.id)}>
                           <td data-label={t('지급일', 'Pay date')}><strong>{d(r.payDate, { month: 'long', day: 'numeric', weekday: 'short' })}</strong></td>
+                          <td data-label={t('급여 기간', 'Pay period')}><span className="period-chip">{periodText(r.payDate)}</span></td>
                           <td className="num" data-label={t('인원', 'People')}>{r.results.length}</td>
                           <td className="num" data-label={t('총급여', 'Gross')}>{formatCurrency(s.gross)}</td>
                           <td className="num" data-label={t('직원 입금', 'Net pay')}><strong>{formatCurrency(s.net)}</strong></td>
@@ -116,7 +124,7 @@ export default function History() {
                         </tr>
                         {isOpen && (
                           <tr className="detail-row">
-                            <td colSpan={7}>
+                            <td colSpan={8}>
                               <div className="history-detail">
                                 <div className="stub-picker">
                                   {r.results.map((x) => (
@@ -128,7 +136,7 @@ export default function History() {
                                 {stub?.run === r.id && (() => {
                                   const e = employees.find((x) => x.id === stub.emp)
                                   const res = r.results.find((x) => x.employeeId === stub.emp)
-                                  return e && res ? <PayStub employee={effectiveEmployee(e, r.time[e.id], companySchedule.frequency)} result={res} time={r.time[e.id]} /> : null
+                                  return e && res ? <PayStub employee={effectiveEmployee(e, r.time[e.id], companySchedule.frequency)} result={res} time={r.time[e.id]} payDate={r.payDate} /> : null
                                 })()}
                                 {r.payments && <PaymentsTable payments={r.payments} employees={employees} payDate={r.payDate} />}
                               </div>

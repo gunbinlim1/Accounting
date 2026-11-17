@@ -90,7 +90,7 @@ function Portal({ employeeId }: { employeeId: string }) {
                 return r && res ? (
                   <section className="card">
                     <div className="card-head"><h2>{formatDate(new Date(`${r.payDate}T00:00`), locale, { year: 'numeric', month: 'long', day: 'numeric' })}</h2><button className="btn sm" onClick={() => window.print()}>{t('인쇄·PDF 저장', 'Print / save PDF')}</button></div>
-                    <PayStub employee={effectiveEmployee(me, r.time[me.id], companySchedule.frequency)} result={res} time={r.time[me.id]} />
+                    <PayStub employee={effectiveEmployee(me, r.time[me.id], companySchedule.frequency)} result={res} time={r.time[me.id]} payDate={r.payDate} />
                   </section>
                 ) : null
               })()}

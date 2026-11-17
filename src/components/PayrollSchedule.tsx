@@ -1,27 +1,22 @@
-import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Hourglass, MessageCircle, PenLine } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { AlertTriangle, CalendarClock, MessageCircle } from 'lucide-react'
+import { useMemo } from 'react'
 import { companySchedule } from '../config/payrollConfig'
 import { formatDate } from '../lib/format'
 import { buildSchedule } from '../lib/payrollSchedule'
-import { statusLabel, timeLeft } from '../lib/runStatus'
 import { daysBetween, frequencyLabel, parseISODate } from '../lib/schedule'
 import { usePrefs } from '../prefs'
 import { useStore } from '../store'
-import type { PayFrequency, RunStatus } from '../types'
-
-type Tone = 'crit' | 'warn' | 'todo' | 'wait' | 'good'
-type T = (ko: string, en: string) => string
+import type { PayFrequency } from '../types'
 
 /** 회사에 설정된 급여 스케줄 (지금은 1개, 여러 개가 되면 여기에 추가) */
 const schedules: { id: string; frequency: PayFrequency; anchor: string }[] = [
   { id: 'main', frequency: companySchedule.frequency, anchor: companySchedule.anchorDate },
 ]
 
-/** 홈 화면: 스케줄마다 다음 급여일 한 줄 + 처리 안 된 지난 회차 알림 */
+/** 홈 화면: 스케줄마다 이번 회차 다음의 급여 일정 한 줄 + 처리 안 된 지난 회차 알림 (이번 회차는 위 히어로 카드) */
 export default function PayrollSchedule({ now, onAsk }: { now: Date; onAsk?: () => void }) {
   const { t, locale } = usePrefs()
-  const { company, payDate, status, runs, deadline } = useStore()
+  const { company, payDate, runs } = useStore()
 
   const rows = useMemo(
     () => schedules.map((s) => {
@@ -32,9 +27,9 @@ export default function PayrollSchedule({ now, onAsk }: { now: Date; onAsk?: () 
         createdAt: company.createdAt,
         processedPayDates: runs.map((r) => r.payDate),
         cutoffBusinessDays: company.cutoffBusinessDays,
-        upcoming: 0,
+        upcoming: 1,
       })
-      return { schedule: s, next: all.find((r) => r.kind === 'current')!, missed: all.filter((r) => r.kind === 'missed') }
+      return { schedule: s, next: all.find((r) => r.kind === 'upcoming')!, missed: all.filter((r) => r.kind === 'missed') }
     }),
     [payDate, company.createdAt, company.cutoffBusinessDays, runs],
   )
@@ -63,48 +58,33 @@ export default function PayrollSchedule({ now, onAsk }: { now: Date; onAsk?: () 
 
       <div className="schedule-list">
         {rows.map(({ schedule, next }) => {
-          const s = stateOf(status, deadline, now, t)
           const dLeft = daysBetween(now, next.payDate)
-          const editable = status === 'draft' || status === 'changes_requested'
+          const weeks = Math.round(daysBetween(now, next.cutoff) / 7)
           return (
-            <article key={schedule.id} className={`next-run tone-${s.tone}`}>
+            <article key={schedule.id} className="next-run tone-next">
               <div className="nr-status">
                 <span className="nr-freq">{frequencyLabel(schedule.frequency, t)}</span>
-                <span className="nr-state">{s.icon}<strong>{s.label}</strong></span>
-                <small>{s.sub}</small>
+                <span className="nr-state"><CalendarClock size={18} aria-hidden /><strong>{t('다음 회차', 'Next period')}</strong></span>
+                <small>{t(`이번 회차 지급 후 입력 · 약 ${weeks}주 뒤 마감`, `Opens after this pay day · due in ~${weeks} weeks`)}</small>
               </div>
               <dl className="nr-facts">
-                <div className="nr-due">
-                  <dt>{t('처리 마감', 'Process by')}</dt>
-                  <dd><strong>{dayW(next.cutoff)}</strong> <span>{next.cutoff.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })}</span></dd>
-                </div>
                 <div className="nr-period">
                   <dt>{t('급여 기간', 'Pay period')}</dt>
-                  <dd>{day(next.start)} – {day(next.end)}</dd>
+                  <dd><strong>{day(next.start)} – {day(next.end)}</strong></dd>
+                </div>
+                <div>
+                  <dt>{t('처리 마감', 'Process by')}</dt>
+                  <dd>{dayW(next.cutoff)} <span>{next.cutoff.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })}</span></dd>
                 </div>
                 <div>
                   <dt>{t('지급일', 'Pay date')}</dt>
-                  <dd><strong>{dayW(next.payDate)}</strong> <span className="nr-dday">{dLeft === 0 ? t('오늘', 'Today') : `D-${dLeft}`}</span></dd>
+                  <dd>{dayW(next.payDate)} <span className="nr-dday">D-{dLeft}</span></dd>
                 </div>
               </dl>
-              <Link to="/run" className={`btn ${editable ? 'primary' : ''} nr-action`}>
-                {editable ? t('급여 입력', 'Run payroll') : t('내역 보기', 'View')} <ArrowRight size={16} aria-hidden />
-              </Link>
             </article>
           )
         })}
       </div>
     </section>
   )
-}
-
-function stateOf(status: RunStatus, deadline: Date, now: Date, t: T): { tone: Tone; label: string; sub: string; icon: ReactNode } {
-  if (status === 'draft' || status === 'changes_requested') {
-    const due = timeLeft(deadline, now, t)
-    if (due.overdue) return { tone: 'crit', label: t('마감 지남', 'Overdue'), sub: t(`${due.text} · 바로 제출하세요`, `${due.text} · submit now`), icon: <AlertTriangle size={18} aria-hidden /> }
-    if (status === 'changes_requested') return { tone: 'warn', label: statusLabel(status, t), sub: t(`마감까지 ${due.text}`, `${due.text} to deadline`), icon: <AlertTriangle size={18} aria-hidden /> }
-    return { tone: due.urgent ? 'warn' : 'todo', label: t('입력할 차례', 'Your turn'), sub: t(`마감까지 ${due.text}`, `${due.text} to deadline`), icon: <PenLine size={18} aria-hidden /> }
-  }
-  if (status === 'processed') return { tone: 'good', label: statusLabel(status, t), sub: t('지급일에 입금돼요', 'Paid on pay day'), icon: <CheckCircle2 size={18} aria-hidden /> }
-  return { tone: 'wait', label: statusLabel(status, t), sub: t('회계법인이 확인 중이에요', 'Your CPA has it'), icon: <Hourglass size={18} aria-hidden /> }
 }
