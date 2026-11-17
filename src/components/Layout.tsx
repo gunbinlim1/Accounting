@@ -9,6 +9,7 @@ import { currentPayDate, usePortal } from '../portal'
 import { usePrefs } from '../prefs'
 import { CompanyProvider, useStore } from '../store'
 import CommandPalette, { type Command } from './CommandPalette'
+import ChatDock from './chat/ChatDock'
 import { fullName } from '../lib/names'
 
 interface NavItem {
@@ -181,6 +182,7 @@ export function ClientLayout() {
   return (
     <CompanyProvider companyId={session.companyId}>
       <ClientShell />
+      <ChatDock companyId={session.companyId} authorName={session.name} />
     </CompanyProvider>
   )
 }

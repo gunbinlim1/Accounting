@@ -88,3 +88,41 @@ export function upcomingDeadlines(from: Date, count = 5): Deadline[] {
     .sort((a, b) => a.date.getTime() - b.date.getTime())
     .slice(0, count)
 }
+
+/** 급여 기간: 직전 급여일 다음 날 ~ 이번 급여일 */
+export function payPeriodFor(frequency: PayFrequency, payDate: Date): { start: Date; end: Date } {
+  return { start: addDays(previousPayDate(frequency, payDate), 1), end: startOfDay(payDate) }
+}
+
+/** 제출 마감: 지급일 N 영업일 전 오후 3시 */
+export function cutoffFor(payDate: Date, businessDays: number): Date {
+  const d = subtractBusinessDays(payDate, businessDays)
+  d.setHours(15, 0, 0, 0)
+  return d
+}
+
+/** from 이후(당일 포함) 급여일 count개 */
+export function upcomingPayDates(frequency: PayFrequency, anchor: Date, from: Date, count: number): Date[] {
+  const list: Date[] = []
+  let cursor = startOfDay(from)
+  while (list.length < count) {
+    const next = nextPayDate(frequency, anchor, cursor)
+    list.push(next)
+    cursor = addDays(next, 1)
+  }
+  return list
+}
+
+/** before 이전, after 이후(당일 포함)의 급여일 — 최근 것부터 최대 limit개 */
+export function pastPayDates(frequency: PayFrequency, before: Date, after: Date, limit: number): Date[] {
+  const list: Date[] = []
+  let d = previousPayDate(frequency, startOfDay(before))
+  while (d >= startOfDay(after) && list.length < limit) {
+    list.push(d)
+    d = previousPayDate(frequency, d)
+  }
+  return list
+}
+
+export const frequencyLabel = (f: PayFrequency, t: (ko: string, en: string) => string): string =>
+  ({ weekly: t('매주', 'Weekly'), biweekly: t('격주', 'Biweekly'), semimonthly: t('월 2회', 'Semi-monthly'), monthly: t('매월', 'Monthly') })[f]

@@ -16,7 +16,7 @@ import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../li
 import { jobLabel } from '../lib/labels'
 import { baseRateForEntry, effectiveEmployee, sumResults, tippedOvertimeRate } from '../lib/payroll'
 import { cashOutOf, timeLeft } from '../lib/runStatus'
-import { parseISODate, previousPayDate } from '../lib/schedule'
+import { parseISODate, payPeriodFor } from '../lib/schedule'
 import { useChecks } from '../lib/useChecks'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
@@ -126,7 +126,7 @@ export default function PayrollRun() {
 
   const active = employees.filter((e) => e.active)
   const pay = parseISODate(payDate)
-  const periodStart = previousPayDate(companySchedule.frequency, pay)
+  const periodStart = payPeriodFor(companySchedule.frequency, pay).start
   const due = timeLeft(deadline, now, t)
   const totals = sumResults(results)
   const blocking = checks.filter((c) => c.severity === 'critical').length

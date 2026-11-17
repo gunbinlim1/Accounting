@@ -2,6 +2,7 @@ import { ArrowRight, BellRing, Check, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { StatusBadge } from '../components/RunStatus'
+import FirmChatInbox from '../components/chat/FirmChatInbox'
 import { companySchedule, standardHours } from '../config/payrollConfig'
 import { runChecks } from '../lib/checks'
 import { computeResults } from '../lib/compute'
@@ -10,7 +11,7 @@ import { markCompanySeen } from '../lib/db/api'
 import { industryLabel } from '../lib/labels'
 import { effectiveEmployee } from '../lib/payroll'
 import { cashOutOf, timeLeft } from '../lib/runStatus'
-import { parseISODate, subtractBusinessDays } from '../lib/schedule'
+import { cutoffFor, parseISODate } from '../lib/schedule'
 import { ytdFor } from '../lib/ytd'
 import { currentPayDate, usePortal } from '../portal'
 import { usePrefs } from '../prefs'
@@ -54,8 +55,7 @@ export default function FirmQueue() {
           standardHours: standardHours[companySchedule.frequency],
           today: now,
         })
-        const deadline = subtractBusinessDays(parseISODate(payDate), c.company.cutoffBusinessDays)
-        deadline.setHours(15, 0, 0, 0)
+        const deadline = cutoffFor(parseISODate(payDate), c.company.cutoffBusinessDays)
         return { c, status, view, checks, deadline, lastActivity: [...c.activity].sort((a, b) => b.at.localeCompare(a.at))[0] }
       }),
     [companies, payDate, now],
@@ -78,6 +78,8 @@ export default function FirmQueue() {
           <p className="lead">{t('이번 회차 고객사 급여 제출 현황입니다. 제출된 곳부터 검토하세요.', 'Here’s where every client stands this pay period. Start with submitted runs.')}</p>
         </div>
       </header>
+
+      <FirmChatInbox />
 
       {newClients.length > 0 && (
         <section className="card new-clients" aria-live="polite">

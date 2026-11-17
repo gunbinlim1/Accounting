@@ -3,7 +3,7 @@ import { companySchedule } from './config/payrollConfig'
 import { defaultTimeFor, industries } from './config/industries'
 import { computeResults } from './lib/compute'
 import { effectiveEmployee } from './lib/payroll'
-import { parseISODate, subtractBusinessDays } from './lib/schedule'
+import { cutoffFor, parseISODate } from './lib/schedule'
 import { ytdFor } from './lib/ytd'
 import { currentPayDate, usePortal } from './portal'
 import type {
@@ -91,8 +91,7 @@ export function CompanyProvider({ companyId, children }: { companyId: string; ch
     const view: RunView = snapshot && status !== 'draft' && status !== 'changes_requested'
       ? snapshot
       : { employees: data.employees, time: data.time, results }
-    const deadline = subtractBusinessDays(parseISODate(payDate), data.company.cutoffBusinessDays)
-    deadline.setHours(15, 0, 0, 0)
+    const deadline = cutoffFor(parseISODate(payDate), data.company.cutoffBusinessDays)
     return {
       status,
       ytdGross,

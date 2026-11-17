@@ -3,12 +3,14 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
 import CheckList from '../components/CheckList'
+import PayrollSchedule from '../components/PayrollSchedule'
+import { openChat } from '../components/chat/events'
 import { ActivityList, StatusBadge, StatusTimeline } from '../components/RunStatus'
 import { companySchedule, periodsPerYear } from '../config/payrollConfig'
 import { formatCurrencyWhole, formatDate } from '../lib/format'
 import { sumResults } from '../lib/payroll'
 import { timeLeft } from '../lib/runStatus'
-import { daysBetween, parseISODate, previousPayDate, upcomingDeadlines } from '../lib/schedule'
+import { daysBetween, frequencyLabel, parseISODate, payPeriodFor, upcomingDeadlines } from '../lib/schedule'
 import { segmentsOf } from '../lib/segments'
 import { useChecks } from '../lib/useChecks'
 import { usePortal } from '../portal'
@@ -23,7 +25,7 @@ export default function Dashboard() {
   const [now] = useState(() => new Date())
   const pay = parseISODate(payDate)
   const daysLeft = daysBetween(now, pay)
-  const periodStart = previousPayDate(companySchedule.frequency, pay)
+  const periodStart = payPeriodFor(companySchedule.frequency, pay).start
   const due = timeLeft(deadline, now, t)
   const totals = sumResults(view.results)
   const centsHome = totals.gross > 0 ? Math.round(((totals.net + totals.cashTips) / totals.gross) * 100) : 0
@@ -68,7 +70,7 @@ export default function Dashboard() {
           </div>
           <StatusTimeline status={status} submittedAt={current.submittedAt} />
           <p className="muted small">
-            {t('급여 기간', 'Pay period')} {formatDate(periodStart, locale, { month: 'short', day: 'numeric' })} – {formatDate(pay, locale, { month: 'short', day: 'numeric' })} · {t('격주 · 텍사스', 'Biweekly · Texas')}
+            {t('급여 기간', 'Pay period')} {formatDate(periodStart, locale, { month: 'short', day: 'numeric' })} – {formatDate(pay, locale, { month: 'short', day: 'numeric' })} · {frequencyLabel(companySchedule.frequency, t)} · {t('텍사스', 'Texas')}
           </p>
         </div>
         <div className="hero-cta">
@@ -85,6 +87,8 @@ export default function Dashboard() {
           <Link to="/run" className="btn primary lg">{cta.text} <ArrowRight size={18} aria-hidden /></Link>
         </div>
       </section>
+
+      <PayrollSchedule now={now} onAsk={openChat} />
 
       <section className="tiles four">
         <div className="tile card">
@@ -151,10 +155,6 @@ export default function Dashboard() {
           <p className="muted small">{t('신고와 예치는 회계법인이 처리합니다.', 'Your CPA files and deposits these.')}</p>
         </section>
       </div>
-
-      <p className="disclaimer">
-        {t('데모 포털: 가상의 고객사·직원 데이터이며 이 브라우저에만 저장됩니다. 실제 직원 정보를 입력하지 마세요.', 'Demo portal: fictional clients and staff, stored in this browser only. Do not enter real employee data.')}
-      </p>
     </div>
   )
 }

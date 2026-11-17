@@ -52,6 +52,7 @@ export default function App() {
               <Route path="c/:companyId" element={<FirmReview />} />
               <Route path="c/:companyId/taxes" element={<FirmReview tab="taxes" />} />
               <Route path="c/:companyId/history" element={<FirmReview tab="history" />} />
+              <Route path="c/:companyId/chat" element={<FirmReview tab="chat" />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

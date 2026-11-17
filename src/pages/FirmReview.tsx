@@ -1,4 +1,7 @@
 import { ArrowLeft, BellRing, CheckCheck, Download, Eye, MessageSquareWarning, Send, Trash2 } from 'lucide-react'
+import ChatPanel from '../components/chat/ChatPanel'
+import { useChat } from '../components/chat/useChat'
+import { firmName } from '../lib/supabase'
 import { useState } from 'react'
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom'
 import PayrollReview from '../components/PayrollReview'
@@ -133,8 +136,27 @@ function Review() {
   )
 }
 
-/** 회계법인: 고객사 화면 (이번 회차 검토 / 세금·신고 / 급여 내역) */
-export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes' | 'history' }) {
+/** 회계법인: 고객사와의 채팅 */
+function FirmChat({ companyId, dba }: { companyId: string; dba: string }) {
+  const { t } = usePrefs()
+  const { session } = usePortal()
+  const chat = useChat(companyId, 'firm', session?.name ?? 'CPA', true)
+  return (
+    <div className="page">
+      <header className="page-head">
+        <p className="eyebrow">{dba}</p>
+        <h1>{t('고객 채팅', 'Client chat')}</h1>
+        <p className="lead">{t('고객 질문에 AI가 먼저 답하고, 담당자 연결이 요청되면 여기서 직접 답장하세요.', 'AI answers client questions first. When a person is requested, reply here.')}</p>
+      </header>
+      <section className="card chat-card">
+        <ChatPanel chat={chat} viewer="firm" firmName={firmName} />
+      </section>
+    </div>
+  )
+}
+
+/** 회계법인: 고객사 화면 (이번 회차 검토 / 세금·신고 / 급여 내역 / 채팅) */
+export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes' | 'history' | 'chat' }) {
   const { t } = usePrefs()
   const { companyId } = useParams()
   const { companies, removeCompany } = usePortal()
@@ -149,6 +171,7 @@ export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes
         <NavLink to={base} end>{t('이번 회차 검토', 'This payroll')}</NavLink>
         <NavLink to={`${base}/taxes`}>{t('세금·신고', 'Taxes & filings')}</NavLink>
         <NavLink to={`${base}/history`}>{t('급여 내역', 'History')}</NavLink>
+        <NavLink to={`${base}/chat`}>{t('채팅', 'Chat')}</NavLink>
         <button
           type="button"
           className="btn sm danger-ghost firm-delete"
@@ -161,7 +184,7 @@ export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes
           <Trash2 size={15} aria-hidden /> {t('고객사 삭제', 'Delete client')}
         </button>
       </nav>
-      {tab === 'review' ? <Review /> : tab === 'taxes' ? <Taxes /> : <History />}
+      {tab === 'review' ? <Review /> : tab === 'taxes' ? <Taxes /> : tab === 'chat' ? <FirmChat companyId={data.company.id} dba={data.company.dba} /> : <History />}
     </CompanyProvider>
   )
 }

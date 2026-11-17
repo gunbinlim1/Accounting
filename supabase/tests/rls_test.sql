@@ -4,7 +4,7 @@
 set client_min_messages = notice;
 
 create schema test;
-grant usage on schema test to authenticated;
+grant usage on schema test to authenticated, service_role;
 
 create function test.ok(cond boolean, msg text) returns void language plpgsql as $$
 begin
@@ -28,7 +28,7 @@ end $$;
 create function test.login(uid uuid, email text, aal text default 'aal2') returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', uid, 'email', email, 'aal', aal, 'role', 'authenticated')::text, false)
 $$;
-grant execute on all functions in schema test to authenticated;
+grant execute on all functions in schema test to authenticated, service_role;
 
 -- 사용자·키 준비 (관리자)
 insert into vault.secrets (name, secret) values ('payroll_field_key', 'test-key-0123456789abcdef-0123456789');
@@ -44,7 +44,7 @@ insert into public.firm_staff (user_id, name, title) values ('00000000-0000-0000
 select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
 set role authenticated;
 create temp table ids as select public.create_company('{"legal_name":"A Foods LLC","dba":"A Cafe","industry":"restaurant","tips_enabled":true,"ein":"12-3456789"}'::jsonb) as ca;
-grant select on ids to authenticated;
+grant select on ids to authenticated, service_role;
 select test.ok((select count(*) = 1 from public.companies), 'A sees only its own company');
 select test.ok((select owner_email = 'owner-a@a.example' from public.companies), 'owner email comes from the login, not the form');
 select test.ok((select count(*) = 1 from public.activity where kind = 'settings' and ko like '고객 포털 생성%'), 'portal creation is logged for the firm');
@@ -173,6 +173,42 @@ select test.ok((select count(*) = 1 from public.companies), 'employee sees their
 update public.employees set rate = 50;  -- RLS: 0행
 reset role;
 select test.ok((select rate = 2.13 from public.employees where id = '00000000-0000-0000-0000-0000000000e1'), 'employee pay unchanged');
+
+-- ── 채팅: 고객 A ↔ 회계법인, AI 답변은 서버만
+select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
+set role authenticated;
+insert into public.chat_messages (company_id, sender, author_name, body) values ((select ca from ids limit 1), 'client', 'Owner A', '급여일이 언제예요?');
+select test.ok((select count(*) = 1 and bool_and(user_id = '00000000-0000-0000-0000-00000000000a') from public.chat_messages), 'client posts a chat message as themselves');
+select test.ok((select last_sender = 'client' and handoff_at is null from public.chat_threads), 'thread starts with AI answering');
+select test.denied($$insert into public.chat_messages (company_id, sender, body) values ((select ca from ids limit 1), 'ai', 'fake')$$, 'client cannot post as AI');
+select test.denied($$insert into public.chat_messages (company_id, sender, body) values ((select ca from ids limit 1), 'firm', 'fake')$$, 'client cannot post as the firm');
+select test.denied($$update public.chat_messages set body = 'edited'$$, 'chat messages cannot be edited');
+select test.denied($$select public.chat_return_to_ai((select ca from ids limit 1))$$, 'client cannot clear a handoff');
+select public.chat_request_human((select ca from ids limit 1), 'needs a person');
+select test.ok((select handoff_at is not null from public.chat_threads), 'client asks for a person');
+reset role;
+set role service_role;
+insert into public.chat_messages (company_id, sender, author_name, body) values ((select ca from ids limit 1), 'ai', 'AI', '다음 급여일은 금요일이에요.');
+select test.denied($$insert into public.chat_messages (company_id, sender, body) values ((select ca from ids limit 1), 'firm', 'fake')$$, 'server posts only AI messages');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000b', 'owner-b@b.example');
+set role authenticated;
+select test.ok((select count(*) = 0 from public.chat_messages), 'B cannot read A''s chat');
+select test.ok((select count(*) = 0 from public.chat_threads), 'B cannot read A''s chat state');
+select test.denied($$insert into public.chat_messages (company_id, sender, body) values ((select ca from ids limit 1), 'client', 'hi')$$, 'B cannot post into A''s chat');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000e', 'emp@mail.example');
+set role authenticated;
+select test.ok((select count(*) = 0 from public.chat_messages), 'employees cannot read the company chat');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
+set role authenticated;
+select test.ok((select count(*) = 2 from public.chat_messages), 'firm reads the chat');
+insert into public.chat_messages (company_id, sender, author_name, body) values ((select ca from ids limit 1), 'firm', 'anyone', '확인했습니다.');
+select test.ok((select author_name = 'Jordan Lee' from public.chat_messages where sender = 'firm'), 'firm name comes from firm_staff');
+select public.chat_return_to_ai((select ca from ids limit 1));
+select test.ok((select handoff_at is null and firm_read_at is not null from public.chat_threads), 'firm returns the chat to AI');
+reset role;
 
 -- ── 회계법인이 고객 삭제
 select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');

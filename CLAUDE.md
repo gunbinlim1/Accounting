@@ -1,6 +1,6 @@
 # CLAUDE.md — Payday 고객 포털 (작업 인수인계)
 
-새 세션은 이 파일부터 읽으세요. 지금까지의 대화·결정·구조·남은 일을 정리한 것입니다. (마지막 정리: 2026-11-11, 배포 커밋 `c324128`)
+새 세션은 이 파일부터 읽으세요. 지금까지의 대화·결정·구조·남은 일을 정리한 것입니다. (마지막 정리: 2026-11-17 — 홈 급여 일정표·고객 채팅(AI 첫 답변) 추가)
 
 ## 사용자·목적
 - 사용자: 텍사스 CPA 회계법인 **Jae Jin Yang CPA PC** (담당 Gunbin Lim, gunbin.lim@yangdeancpa.com). **응답은 한국어.** 비개발자이므로 설명은 쉬운 말로, 할 일은 단계별로.
@@ -14,12 +14,13 @@
 | 정식 사이트 | **Vercel `jae-jin-yang-cpa-pc/accounting` 프로젝트 Production** (`main` 푸시 → 자동 배포). 사용자 확인 결과 최신 배포 정상 표시됨. 정확한 도메인은 Vercel → Domains (예상 `accounting-jae-jin-yang-cpa-pc.vercel.app`) |
 | 미리보기 | 브랜치마다 `accounting-git-<브랜치>-jae-jin-yang-cpa-pc.vercel.app` |
 | 배포 확인 | 로그인 화면 왼쪽 아래 `production <커밋7자리>` 표시 (`vite.config.ts` define: VERCEL_ENV·VERCEL_GIT_COMMIT_SHA) |
-| 저장소 | https://github.com/gunbinlim1/Accounting (공개). 작업 브랜치 `claude/serene-noether-jl1r8o`, **사용자 승인 흐름으로 `main`에 직접 푸시해 옴** (같은 커밋을 브랜치와 main 둘 다 푸시 → Vercel 배포 2건씩 생김) |
+| 저장소 | https://github.com/gunbinlim1/Accounting (공개). 작업 브랜치 `claude/beautiful-gates-bhnhov` (이전 `claude/serene-noether-jl1r8o`), **사용자 승인 흐름으로 `main`에 직접 푸시해 옴** (같은 커밋을 브랜치와 main 둘 다 푸시 → Vercel 배포 2건씩 생김) |
 | GitHub Pages | `deploy.yml`은 수동 실행만. github.io에는 옛 데모가 남아 있음(사용자에게 Pages 끄기 권함) |
 | Supabase | 프로젝트 `payday-portal`, ID **`mvnixlpissdrioivjqjy`**, us-east-1, **무료 플랜**, 조직 "Jae Jin Yang CPA PC". URL https://mvnixlpissdrioivjqjy.supabase.co. publishable 키는 `.env.production`(공개용 값) |
 | Supabase 접근 | **Supabase 커넥터(MCP)** 로 SQL·마이그레이션·로그·advisor 가능 (`mcp__Supabase__*`, ToolSearch로 불러옴). 대시보드 설정(메일 템플릿·URL 설정)은 커넥터로 못 바꿈 → 사용자가 함 |
 | 회계법인 직원 | **Gunbin Lim** (gunbin.lim@yangdeancpa.com) — 2026-11-11 `firm_staff` 등록, 직함 비어 있음. 아직 인증 앱(MFA) 등록·첫 로그인 전 |
-| 고객사 | 아직 0곳 (실제 데이터 없음) |
+| 고객사 | 2026-11-17 기준 1곳 (사용자 가입 시험으로 보임) |
+| 채팅 AI | Edge Function `chat-ai` 배포됨(verify_jwt). **비밀값 `ANTHROPIC_API_KEY` 미설정** → 설정 전에는 "자동 답변 준비 중" 안내 후 바로 담당자 연결 |
 
 ## 사용자가 해야 할 일 (진행 상태)
 1. ✅ Supabase 인증 URL 설정(Site URL = Vercel 본 사이트, Redirect URLs `https://*-jae-jin-yang-cpa-pc.vercel.app/**`) — 02:30~02:31 설정 변경 기록 있음, 가입 메일 링크 정상 작동 확인.
@@ -29,7 +30,9 @@
    - 이유: 회사 메일 보안 검사(Outlook 안전한 링크 등)가 링크를 미리 열어 가입 21초 만에 인증이 자동 처리된 사례 발생. 포털 `/auth/confirm`은 버튼을 눌러야 인증됨.
 3. ⬜ `/firm/login`으로 로그인 → 인증 앱 QR 등록 → 회계법인 대기열 확인.
 4. ⬜ 다른 이메일로 고객 "계정 만들기" 전체 흐름 시험 → 회계법인 대기열 "새로 가입한 고객사" 알림 확인 (Supabase 기록으로 같이 점검).
-5. ⬜ (권장) 실제 직원 정보 입력 전: Supabase 유료(Pro) 전환·백업, SMTP를 회계법인 도메인 메일로, GitHub Pages 끄기, Vercel에 같은 저장소가 2개 프로젝트로 연결됐는지 확인.
+5. ⬜ **채팅 AI 켜기**: Anthropic API 키 발급 → Supabase → Edge Functions → Secrets에 `ANTHROPIC_API_KEY` 추가 (https://supabase.com/dashboard/project/mvnixlpissdrioivjqjy/functions/secrets). 선택 `FIRM_NAME`.
+6. ⬜ (권장) Authentication → Leaked password protection 켜기 (advisor 경고).
+7. ⬜ (권장) 실제 직원 정보 입력 전: Supabase 유료(Pro) 전환·백업, SMTP를 회계법인 도메인 메일로, GitHub Pages 끄기, Vercel에 같은 저장소가 2개 프로젝트로 연결됐는지 확인.
 
 ## 제안해 두고 답 기다리는 것
 - **회계법인 관리자 화면**: 가입 대기 중인 회계법인 직원 계정을 포털 안에서 승인·해제 (지금은 SQL 또는 Claude가 커넥터로만 등록 가능).
@@ -48,11 +51,14 @@
   `insert into public.firm_staff (user_id, name, title) select id, '<이름>', '<직함>' from auth.users where email = '<이메일>' and email_confirmed_at is not null;`
 
 ## 데이터·보안 구조 (Supabase)
-- 마이그레이션(둘 다 실제 프로젝트에 적용됨): `supabase/migrations/20261111000000_payroll_schema.sql`, `20261111010000_client_signup_notice.sql`. 새 DB 변경은 파일로 추가하고 `mcp__Supabase__apply_migration`으로 적용.
+- 마이그레이션(모두 실제 프로젝트에 적용됨): `20261111000000_payroll_schema.sql`, `20261111010000_client_signup_notice.sql`, `20261116000000_client_chat.sql`, `20261116010000_client_chat_grants.sql`. 새 DB 변경은 파일로 추가하고 `mcp__Supabase__apply_migration`으로 적용.
 - 테이블: companies(+firm_seen_at), company_members, firm_staff, employees, employee_secrets(암호화), time_entries, pay_runs, pay_results, payments, tax_deposits, activity, audit_log, 비공개 버킷 `payroll-docs/<company_id>/…`.
 - RLS: 회계법인 전체 / 고객 자기 회사 / 직원 본인 기록·급여 결과만(스냅샷·근무 입력은 못 봄). **모든 접근 MFA(aal2) 필수.** 고객 상태 변경(작성 중↔제출만)·제출 잠금·활동 기록 작성자·firm_seen_at은 트리거로 강제. 주요 변경은 audit_log.
 - SSN·라우팅·계좌 전체 번호: `set_employee_secrets` RPC로 pgcrypto 암호화(키 = Vault `payroll_field_key`, 서버에서 생성, 값은 어디에도 출력 안 함 — **잃으면 복구 불가**). 읽기는 회계법인만 `get_employee_secrets`(열람 기록). 화면엔 뒤 4자리·`onFile`.
-- Supabase security advisor 경고 5건은 의도된 설계(employee_secrets 정책 없음 = 직접 접근 차단, SECURITY DEFINER RPC 4개는 함수 안에서 권한 확인).
+- **채팅**: `chat_messages`(sender client/firm/ai, 수정·삭제 불가, 작성자·시각 트리거 고정, ai는 service_role만) + `chat_threads`(handoff_at = 담당자 연결 중, 읽음 시각). RPC `chat_request_human`·`chat_return_to_ai`(firm만)·`chat_mark_read`. 회계법인이 답장하면 자동으로 담당자 모드(AI 멈춤). Realtime 발행에 두 테이블 추가. 고객사 직원(employee 역할)은 채팅 못 봄.
+- **AI 답변** `supabase/functions/chat-ai/index.ts`: 고객 토큰으로 권한 확인 → handoff 아니고 마지막이 고객 메시지일 때만 → claude-opus-5-5(effort low, JSON 스키마 {reply, handoff, handoff_reason}, server-side fallback "default") → service_role로 ai 메시지 저장, handoff면 담당자 연결. 회사당 시간당 30건 제한. AI에는 회사명·업종·일정·회차 상태·대화만 보냄(SSN·계좌·급여액 없음). 급여 주기 상수는 `payrollConfig.companySchedule`과 맞춰야 함. 함수 수정 시 `deploy_edge_function`으로 재배포(파일 내용 그대로).
+- Supabase security advisor 경고는 의도된 설계 (SECURITY DEFINER RPC 7개 — 채팅 3개 포함 — 는 함수 안에서 권한 확인, employee_secrets 정책 없음 = 직접 접근 차단). 단 Leaked password protection 꺼짐 경고는 사용자가 켜야 함.
+- (이전 기록) Supabase security advisor 경고 5건은 의도된 설계(employee_secrets 정책 없음 = 직접 접근 차단, SECURITY DEFINER RPC 4개는 함수 안에서 권한 확인).
 - 앱 데이터 흐름: `src/portal.tsx`(인증 상태·불러오기·저장 대기열) → 화면은 `updateCompany(id, fn)`으로 CompanyData를 고침 → `src/lib/db/plan.ts`가 바뀐 부분을 순서 있는 DB 쓰기 목록으로(제출 시 근무 입력 먼저, 취소 시 상태 먼저) → `src/lib/db/api.ts` 실행(근무 입력은 0.6초 모아서). 실패하면 DB 기준으로 다시 불러옴. 행↔객체 변환 `src/lib/db/mappers.ts`. 설정 없으면 `SetupNeeded` 화면.
 - 데모 데이터·브라우저 저장은 제거됨(사용자 결정). 테스트용 가상 직원만 `src/test/`.
 
@@ -74,14 +80,17 @@
 
 ## 코드 구조
 - React 19 + TypeScript + Vite + react-router 7, lucide-react, vitest, oxlint, @supabase/supabase-js, pdfjs-dist, pdf-lib, read-excel-file.
+- 홈(`Dashboard`) 상단 히어로 아래 **급여 일정표** `src/components/PayrollSchedule.tsx` + `src/lib/payrollSchedule.ts`(`buildSchedule`): 가입 후 시작됐는데 처리 안 된 지난 회차(미처리, 최대 3) · 이번 회차(상태·남은 시간·급여 입력 버튼) · 다음 3회차. 열: 처리 마감 / 상태 / 급여 주기 / 급여 기간(직전 지급일 다음 날~지급일, `payPeriodFor`) / 지급일. 모바일은 카드형. 미처리 행 "문의" → 채팅 열기.
+- 채팅 UI `src/components/chat/`: `ChatDock`(고객 화면 오른쪽 아래 버튼·창, `openChat()` 이벤트), `ChatPanel`(공용 대화 화면), `useChat`(불러오기·Realtime 구독 + 20초 폴링·보내기·AI 요청), `FirmChatInbox`(회계법인 대기열 상단 "고객 채팅"). 회계법인 `/firm/c/:id/chat` 탭. 데이터 `src/lib/chat.ts`.
 - 페이지: 공개 `/login` `/signup`(고객 계정) `/register`(직원 계정) `/firm/login` `/firm/register` `/auth/confirm` · 로그인 후 `/setup`(회사 포털 만들기) · 고객 `/` `/run` `/employees` `/employees/new|:id` `/history` `/taxes` `/company` `/simulator` · 회계법인 `/firm`(대기열·새 고객사 알림) `/firm/settings` `/firm/c/:id`(+`/taxes` `/history`, "고객사 삭제" 버튼) · 직원 `/me`.
 - `src/store.tsx`: `CompanyProvider`/`useStore()` (제출/취소/검토/수정요청/처리/납부/위임 서명). `src/lib`: payroll·federalWithholding·taxes·payments·checks·compliance·docExtract·companyDocs·bank·names·ytd·compute·csv.
 - `vercel.json`: SPA rewrites + 보안 헤더. `.env.production`: Supabase URL·publishable 키. `docs/SUPABASE.md`: 설정 가이드(사용자용, 한국어).
 
 ## 작업 방법
-- 확인: `npm run lint && npm test && npm run build` (단위 테스트 58개). DB 권한 시험: `scripts/test-db.sh`(로컬 PostgreSQL + `supabase/tests/supabase_shim.sql` + `rls_test.sql`, 52개, CI `database` 잡에서도 실행).
+- 확인: `npm run lint && npm test && npm run build` (단위 테스트 65개). DB 권한 시험: `scripts/test-db.sh`(로컬 PostgreSQL + `supabase/tests/supabase_shim.sql` + `rls_test.sql`, 채팅 포함 67개, CI `database` 잡에서도 실행).
 - 로컬 PostgreSQL: `/usr/lib/postgresql/16/bin`, 데이터 `/var/lib/postgresql/paydaytest` (postgres 사용자로 `pg_ctl ... -o '-p 54329 -k <dir>' start`, 컨테이너 재시작 시 다시 켜야 함). `PGHOST=/var/lib/postgresql/paydaytest PGPORT=54329 PGUSER=postgres scripts/test-db.sh`.
 - 실제 Supabase에서 권한 시험: `rls_test.sql` 내용을 `begin;`으로 감싸고 마지막에 `raise exception`으로 롤백해 `execute_sql`로 실행(남는 데이터 없음 확인).
+- 로그인 후 화면 확인(가짜 백엔드): 스크래치패드에 Playwright 스크립트로 `127.0.0.1:59999/**`를 route 가로채기 → localStorage `sb-127-auth-token`에 aal2 JWT(서명 불필요) 세션 + `/auth/v1/user`, `/rest/v1/<table>`, `/functions/v1/chat-ai` 응답 흉내. 직접 URL 진입 시 회계법인은 `/firm`으로 가므로 화면 안에서 클릭해 이동.
 - 화면 확인: 가짜 설정으로 빌드(`VITE_SUPABASE_URL=http://127.0.0.1:59999 VITE_SUPABASE_ANON_KEY=dummy npx vite build --mode test`, `BASE_PATH=/Accounting/`) 후 `npx vite preview --port 4173` + Playwright. 실제 로그인 흐름은 이 환경에서 시험 불가.
 - **이 셸 환경에서 막힌 것**: `*.supabase.co`, `vercel.app`/`vercel.com`, `github.io`, `irs.gov` 접속, GitHub Actions 변수 API, 외부 바이너리 다운로드(PostgREST 등). → Vercel 배포 결과는 `gh api repos/gunbinlim1/Accounting/commits/<sha>/statuses`, CI는 `gh run list -R gunbinlim1/Accounting`, Supabase는 커넥터(SQL·`query_logs`)로 확인.
 - Claude in Chrome: 사용자가 Edge에 설치함. 이 클라우드 세션에서는 연결 불가 → 대시보드 작업은 단계별 안내 + 확장 프로그램에 붙여 넣을 문장 제공.
@@ -94,6 +103,7 @@
 3. AI 문서 인식 서비스, 수표 인쇄 방식, 고객별 급여 주기 허용 여부, 업종별 기본 시급 검토.
 
 ## 다음 후보 작업
+- 채팅: 새 메시지 이메일/푸시 알림, 파일 첨부, AI 답변 품질 점검(실제 대화 표본으로), 지난 회차(off-cycle) 처리 기능.
 - 회계법인 관리자 화면(직원 승인), 새 고객사 이메일 알림, SMTP·초대/안내 메일.
 - 기획서에 Supabase 전환·가입 구조·회계법인 로그인 반영.
 - ACH 직접입금 파일, 전자신고(941/940/C-3/W-2), 940·W-3 서식, Fringe 규칙표 편집 화면, 다른 주 템플릿, POS 연동.
