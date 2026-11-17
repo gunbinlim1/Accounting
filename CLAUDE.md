@@ -81,7 +81,7 @@
 
 ## 코드 구조
 - React 19 + TypeScript + Vite + react-router 7, lucide-react, vitest, oxlint, @supabase/supabase-js, pdfjs-dist, pdf-lib, read-excel-file.
-- 홈(`Dashboard`) **이번 회차** 히어로: 급여 기간을 큰 테두리 상자로 맨 앞에(사용자 요청), 그 아래 지급일·D-day, 진행 단계. **다음 급여 일정** `src/components/PayrollSchedule.tsx`: 이번 회차가 아니라 **그 다음 회차**를 스케줄마다 한 줄(급여 기간·처리 마감·지급일). 파일 안 `schedules` 배열(지금 1개). 처리 안 된 지난 회차는 빨간 알림 한 줄 + "문의하기"(채팅). 계산 `src/lib/payrollSchedule.ts` `buildSchedule`.
+- 홈(`Dashboard`) **이번 회차** 히어로: **급여 기간(파란 상자)과 지급일(초록 상자, D-day)을 같은 크기로 둘 다 강조**(사용자 요청), 그 아래 진행 단계. 다음 회차 카드의 지급일도 굵은 초록. **다음 급여 일정** `src/components/PayrollSchedule.tsx`: 이번 회차가 아니라 **그 다음 회차**를 스케줄마다 한 줄(급여 기간·처리 마감·지급일). 파일 안 `schedules` 배열(지금 1개). 처리 안 된 지난 회차는 빨간 알림 한 줄 + "문의하기"(채팅). 계산 `src/lib/payrollSchedule.ts` `buildSchedule`.
 - 급여 내역(`History`) 표에 "급여 기간" 열, CSV에 Period start/end. 급여명세서(`PayStub` `payDate` prop) 맨 위에 급여 기간·지급일.
 - 세금·신고(`Taxes`) "제출한 신고서 PDF" 탭 = `src/components/FiledReturns.tsx`(연도별·분기/연간 목록, PDF 받기 = 60초 서명 링크; 회계법인은 올리기 폼·삭제). 분기 탭·W-2 탭에는 해당 기간 신고서 바로 받기 줄(`compact`). 데이터 `src/lib/filings.ts`.
 - 채팅 UI `src/components/chat/`: `ChatDock`(고객 화면 오른쪽 아래 버튼·창, `openChat()` 이벤트), `ChatPanel`(공용 대화 화면), `useChat`(불러오기·Realtime 구독 + 20초 폴링·보내기·AI 요청), `FirmChatInbox`(회계법인 대기열 상단 "고객 채팅"). 회계법인 `/firm/c/:id/chat` 탭. 데이터 `src/lib/chat.ts`.

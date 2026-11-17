@@ -78,7 +78,7 @@ export default function PayrollSchedule({ now, onAsk }: { now: Date; onAsk?: () 
                 </div>
                 <div>
                   <dt>{t('지급일', 'Pay date')}</dt>
-                  <dd>{dayW(next.payDate)} <span className="nr-dday">D-{dLeft}</span></dd>
+                  <dd><strong className="nr-payday">{dayW(next.payDate)}</strong> <span className="nr-dday">D-{dLeft}</span></dd>
                 </div>
               </dl>
             </article>
