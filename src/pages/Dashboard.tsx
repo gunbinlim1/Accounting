@@ -33,6 +33,7 @@ export default function Dashboard() {
   const periodStart = parseISODate(period.start)
   const periodEnd = parseISODate(period.end)
   const periodDays = daysBetween(periodStart, periodEnd) + 1
+  const elapsed = Math.min(periodDays, Math.max(0, daysBetween(periodStart, now) + 1))
   const changed = openRun.schedules.some((x) => x.period.changed)
   const due = timeLeft(deadline, now, t)
   const totals = sumResults(view.results)
@@ -88,23 +89,23 @@ export default function Dashboard() {
               onSave={async (d) => { await store.changeRunDates(d, session?.name ?? company.ownerName); setEditingDates(false) }}
             />
           ) : (
-          <div className="hero-dates">
-            <div className="hero-period">
-              <span className="hp-label"><CalendarRange size={16} aria-hidden /> {t('급여 기간', 'Pay period')}</span>
-              <strong className="hp-range">
-                {formatDate(periodStart, locale, { month: 'long', day: 'numeric', weekday: 'short' })}
-                <span className="hp-dash" aria-hidden>–</span>
-                {formatDate(periodEnd, locale, { month: 'long', day: 'numeric', weekday: 'short' })}
+          <div className="date-card">
+            <div className="dc-pane dc-period">
+              <span className="dc-label"><CalendarRange size={14} aria-hidden /> {t('급여 기간', 'Pay period')}</span>
+              <strong className="dc-range">
+                {formatDate(periodStart, locale, { month: 'short', day: 'numeric', weekday: 'short' })}
+                <span className="dc-arrow" aria-hidden>→</span>
+                {formatDate(periodEnd, locale, { month: 'short', day: 'numeric', weekday: 'short' })}
               </strong>
-              <span className="hp-meta">{t(`${periodDays}일 · ${frequencyLabel(frequency, t)}`, `${periodDays} days · ${frequencyLabel(frequency, t)}`)}</span>
+              <div className="dc-progress" role="img" aria-label={t(`급여 기간 ${periodDays}일 중 ${elapsed}일 지남`, `${elapsed} of ${periodDays} days elapsed`)}>
+                <span style={{ width: `${Math.round((elapsed / periodDays) * 100)}%` }} />
+              </div>
+              <span className="dc-meta">{t(`${periodDays}일 · ${frequencyLabel(frequency, t)}`, `${periodDays} days · ${frequencyLabel(frequency, t)}`)}{elapsed > 0 && elapsed < periodDays ? t(` · ${elapsed}일째`, ` · day ${elapsed}`) : ''}</span>
             </div>
-            <div className="hero-period hero-payday">
-              <span className="hp-label"><Banknote size={16} aria-hidden /> {t('지급일', 'Pay date')}</span>
-              <strong className="hp-range">
-                {formatDate(pay, locale, { month: 'long', day: 'numeric', weekday: 'short' })}
-                <span className="dday">{daysLeft === 0 ? t('오늘', 'Today') : `D-${daysLeft}`}</span>
-              </strong>
-              <span className="hp-meta">{t('직원에게 급여가 지급되는 날', 'The day employees get paid')}</span>
+            <div className="dc-pane dc-pay">
+              <span className="dc-label"><Banknote size={14} aria-hidden /> {t('지급일', 'Pay date')}</span>
+              <strong className="dc-paydate">{formatDate(pay, locale, { month: 'short', day: 'numeric', weekday: 'short' })}</strong>
+              <span className="dc-meta"><span className="dc-dday">{daysLeft === 0 ? t('오늘 지급', 'Today') : `D-${daysLeft}`}</span> {t('직원에게 입금되는 날', 'Employees get paid')}</span>
             </div>
           </div>
           )}
