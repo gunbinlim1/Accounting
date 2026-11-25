@@ -2,7 +2,8 @@ import { CalendarPlus, Check, ChevronDown, Clock, Palmtree, Plus, Settings2, X }
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { formatDate } from '../lib/format'
 import { compareByName, fullName } from '../lib/names'
-import { accrualText, defaultRequestHours, policyAppliesTo, ptoKindLabel, ptoLedger, type PtoBalance } from '../lib/pto'
+import { addDaysIso, employmentStatus } from '../lib/employment'
+import { accrualText, defaultRequestHours, policyAppliesTo, ptoEligibleFrom, ptoKindLabel, ptoLedger, type PtoBalance } from '../lib/pto'
 import { parseISODate, toISODate } from '../lib/schedule'
 import { usePortal } from '../portal'
 import { usePrefs } from '../prefs'
@@ -26,7 +27,10 @@ export default function Pto() {
   const [openEmp, setOpenEmp] = useState<string | null>(null)
 
   const policies = pto.policies.filter((p) => p.active)
-  const active = useMemo(() => employees.filter((e) => e.active).sort(compareByName), [employees])
+  const recentCut = addDaysIso(today, -180)
+  // 재직·입사 예정·퇴사 예정 직원 + 최근 180일 안에 퇴사한 직원(남은 잔액 확인용)
+  const active = useMemo(() => employees.filter((e) => employmentStatus(e, today) !== 'former' || (e.terminationDate && e.terminationDate >= recentCut)).sort(compareByName), [employees, today, recentCut])
+  const working = active.filter((e) => employmentStatus(e, today) !== 'former')
   const name = (id: string) => {
     const e = employees.find((x) => x.id === id)
     return e ? fullName(e) : ''
@@ -88,7 +92,7 @@ export default function Pto() {
 
       {recording && (
         <RecordForm
-          employees={active}
+          employees={working}
           policies={policies}
           onCancel={() => setRecording(false)}
           onSave={async (r) => { await store.requestPto(r, actor, me); setRecording(false) }}
@@ -136,15 +140,27 @@ export default function Pto() {
               <Fragment key={e.id}>
                 <li className={isOpen ? 'open' : ''}>
                   <button type="button" className="pto-bal-row" onClick={() => setOpenEmp(isOpen ? null : e.id)} aria-expanded={isOpen}>
-                    <span className="pto-who"><strong>{fullName(e)}</strong><small className="muted">{payTypeLabel(e.payType, t)}</small></span>
+                    <span className="pto-who">
+                      <strong>{fullName(e)}</strong>
+                      <small className="muted">{payTypeLabel(e.payType, t)} · {t(`${d(e.hireDate)} 입사`, `hired ${d(e.hireDate)}`)}{e.terminationDate ? t(` · ${d(e.terminationDate)} 퇴사`, ` · left ${d(e.terminationDate)}`) : ''}</small>
+                    </span>
                     {policies.map((p) => {
                       const b = bs.find((x) => x.policy.id === p.id)
                       if (!b) return <span key={p.id} className="num muted">—</span>
                       const use = pendingUse(e, p.id)
+                      const from = ptoEligibleFrom(e, p)
+                      if (from > today && b.balance === 0) {
+                        return (
+                          <span key={p.id} className="num pto-amount waiting">
+                            <strong className="muted">{t('대기 중', 'Waiting')}</strong>
+                            <small className="muted">{t(`${d(from)}부터 적립`, `accrues from ${d(from)}`)}</small>
+                          </span>
+                        )
+                      }
                       return (
                         <span key={p.id} className="num pto-amount">
                           <strong>{round(b.balance - use)}<small>h</small></strong>
-                          <small className="muted">{use > 0 ? t(`이번 회차 −${use}h`, `−${use}h this run`) : p.maxBalance !== null ? t(`최대 ${p.maxBalance}h`, `max ${p.maxBalance}h`) : ' '}</small>
+                          <small className="muted">{e.terminationDate && e.terminationDate < today ? t('퇴사 — 남은 잔액', 'Left — remaining') : use > 0 ? t(`이번 회차 −${use}h`, `−${use}h this run`) : from > today ? t(`${d(from)}부터 적립`, `accrues from ${d(from)}`) : p.maxBalance !== null ? t(`최대 ${p.maxBalance}h`, `max ${p.maxBalance}h`) : ' '}</small>
                         </span>
                       )
                     })}
@@ -210,10 +226,10 @@ function PageHead({ t, action }: { t: T; action?: ReactNode }) {
 function presets(t: T): { key: string; title: string; detail: string; policy: Omit<PtoPolicy, 'id'> }[] {
   const all: PayType[] = ['hourly', 'tipped', 'salary']
   return [
-    { key: 'hour', title: t('일한 만큼 쌓기', 'Earn as you work'), detail: t('근무 30시간마다 1시간 · 최대 40시간 (시급 직원에게 흔한 방식)', '1h per 30h worked · max 40h'), policy: { name: 'PTO', kind: 'pto', accrual: 'per_hour', amount: 1, perHours: 30, maxBalance: 40, appliesTo: all, active: true } },
-    { key: 'year', title: t('매년 정해진 시간', 'Fixed yearly amount'), detail: t('매년 1월 1일 40시간 (5일) · 최대 80시간', '40h every Jan 1 · max 80h'), policy: { name: t('연차', 'Vacation'), kind: 'vacation', accrual: 'annual', amount: 40, perHours: 30, maxBalance: 80, appliesTo: all, active: true } },
-    { key: 'period', title: t('급여마다 조금씩', 'A little each payroll'), detail: t('급여 회차마다 3시간 · 최대 80시간', '3h every payroll · max 80h'), policy: { name: 'PTO', kind: 'pto', accrual: 'per_period', amount: 3, perHours: 30, maxBalance: 80, appliesTo: all, active: true } },
-    { key: 'none', title: t('기록만 하기', 'Just track it'), detail: t('적립 없이 쓴 휴가만 기록 (잔액은 직접 넣기)', 'No accrual — enter balances yourself'), policy: { name: t('병가', 'Sick leave'), kind: 'sick', accrual: 'none', amount: 0, perHours: 30, maxBalance: null, appliesTo: all, active: true } },
+    { key: 'hour', title: t('일한 만큼 쌓기', 'Earn as you work'), detail: t('근무 30시간마다 1시간 · 최대 40시간 (시급 직원에게 흔한 방식)', '1h per 30h worked · max 40h'), policy: { name: 'PTO', kind: 'pto', accrual: 'per_hour', amount: 1, perHours: 30, maxBalance: 40, appliesTo: all, waitingDays: 0, active: true } },
+    { key: 'year', title: t('매년 정해진 시간', 'Fixed yearly amount'), detail: t('입사 90일 후부터 · 매년 1월 1일 40시간 (5일) · 최대 80시간', 'After 90 days · 40h every Jan 1 · max 80h'), policy: { name: t('연차', 'Vacation'), kind: 'vacation', accrual: 'annual', amount: 40, perHours: 30, maxBalance: 80, appliesTo: all, waitingDays: 90, active: true } },
+    { key: 'period', title: t('급여마다 조금씩', 'A little each payroll'), detail: t('급여 회차마다 3시간 · 최대 80시간', '3h every payroll · max 80h'), policy: { name: 'PTO', kind: 'pto', accrual: 'per_period', amount: 3, perHours: 30, maxBalance: 80, appliesTo: all, waitingDays: 0, active: true } },
+    { key: 'none', title: t('기록만 하기', 'Just track it'), detail: t('적립 없이 쓴 휴가만 기록 (잔액은 직접 넣기)', 'No accrual — enter balances yourself'), policy: { name: t('병가', 'Sick leave'), kind: 'sick', accrual: 'none', amount: 0, perHours: 30, maxBalance: null, appliesTo: all, waitingDays: 0, active: true } },
   ]
 }
 
@@ -248,7 +264,7 @@ function PolicySection({ policies, editing, onEdit, onSave }: {
 
 function PolicyForm({ initial, onSave, onCancel }: { initial?: PtoPolicy; onSave: (p: Omit<PtoPolicy, 'id'> & { id?: string }) => Promise<void>; onCancel: () => void }) {
   const { t } = usePrefs()
-  const [p, setP] = useState<Omit<PtoPolicy, 'id'>>(initial ?? { name: 'PTO', kind: 'pto', accrual: 'per_hour', amount: 1, perHours: 30, maxBalance: 40, appliesTo: ['hourly', 'tipped', 'salary'], active: true })
+  const [p, setP] = useState<Omit<PtoPolicy, 'id'>>(initial ?? { name: 'PTO', kind: 'pto', accrual: 'per_hour', amount: 1, perHours: 30, maxBalance: 40, appliesTo: ['hourly', 'tipped', 'salary'], waitingDays: 0, active: true })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const set = <K extends keyof typeof p>(k: K, v: (typeof p)[K]) => setP((x) => ({ ...x, [k]: v }))
@@ -286,6 +302,16 @@ function PolicyForm({ initial, onSave, onCancel }: { initial?: PtoPolicy; onSave
           {p.accrual === 'per_period' && <>{t('급여 회차마다', 'Each payroll earns')} <input type="number" min={0} step={0.25} value={p.amount} onChange={(e) => set('amount', Math.max(0, Number(e.target.value) || 0))} /> {t('시간 적립', 'hour(s)')}</>}
           {p.accrual === 'annual' && <>{t('매년 1월 1일에', 'Every Jan 1, grant')} <input type="number" min={0} step={1} value={p.amount} onChange={(e) => set('amount', Math.max(0, Number(e.target.value) || 0))} /> {t('시간 지급 (입사 첫해는 입사일)', 'hours (hire date in the first year)')}</>}
         </p>
+      )}
+      {p.accrual !== 'none' && (
+        <div className="field"><span>{t('입사 후 대기 기간 (이 기간에는 적립 안 됨)', 'Waiting period after hire (no accrual)')}</span>
+          <div className="wait-pick">
+            {[0, 30, 60, 90].map((n) => (
+              <button key={n} type="button" className={`chip${p.waitingDays === n ? ' on' : ''}`} onClick={() => set('waitingDays', n)}>{n === 0 ? t('없음 (입사일부터)', 'None (from hire date)') : t(`${n}일`, `${n} days`)}</button>
+            ))}
+            <label className="wait-custom">{t('직접', 'Custom')} <input type="number" min={0} max={730} step={1} value={p.waitingDays} onChange={(e) => set('waitingDays', Math.min(730, Math.max(0, Math.round(Number(e.target.value) || 0))))} /> {t('일', 'days')}</label>
+          </div>
+        </div>
       )}
       <div className="form-grid">
         <label className="field"><span>{t('최대 잔액 (비우면 제한 없음)', 'Max balance (blank = no limit)')}</span>

@@ -46,6 +46,8 @@ interface Draft {
   rate: string
   pretax: string
   hireDate: string
+  /** 퇴사일 ('' = 재직) */
+  terminationDate: string
   ssn: string
   ssnLast4Existing: string
   dob: string
@@ -112,7 +114,7 @@ function newDraft(company: Company): Draft {
   const tpl = roleTemplate(role)
   return {
     active: true, lastName: '', firstName: '', middleInitial: '', role, jobTitle: '', payType: tpl.payType, scheduleId: '', rate: String(tpl.rate), pretax: '0',
-    hireDate: today(), ssn: '', ssnLast4Existing: '', dob: '', phone: '', email: '',
+    hireDate: today(), terminationDate: '', ssn: '', ssnLast4Existing: '', dob: '', phone: '', email: '',
     street: '', city: 'Houston', state: 'TX', zip: '',
     w4Received: true, filingStatus: 'single', multipleJobs: false, dependents: '0', children: '0', otherDependents: '0',
     otherIncome: '0', deductions: '0', extraWithholding: '0', exempt: false, w4Signed: today(),
@@ -128,7 +130,7 @@ function fromEmployee(e: Employee): Draft {
   while (docs.length < 2) docs.push({ ...blankDoc })
   return {
     id: e.id, active: e.active, lastName: e.lastName, firstName: e.firstName, middleInitial: e.middleInitial ?? '', role: e.role, jobTitle: e.jobTitle ?? '', payType: e.payType, scheduleId: e.scheduleId ?? '', rate: String(e.rate),
-    pretax: String(Math.round(e.pretaxDeferralRate * 1000) / 10), hireDate: e.hireDate,
+    pretax: String(Math.round(e.pretaxDeferralRate * 1000) / 10), hireDate: e.hireDate, terminationDate: e.terminationDate ?? '',
     ssn: '', ssnLast4Existing: e.ssnLast4, dob: e.dateOfBirth ?? '', phone: e.phone ?? '', email: e.email ?? '',
     street: e.address.street, city: e.address.city, state: e.address.state, zip: e.address.zip,
     w4Received: e.w4 !== null, filingStatus: w4.filingStatus, multipleJobs: w4.multipleJobs, dependents: String(w4.dependentsAmount),
@@ -159,8 +161,9 @@ function toEmployee(d: Draft, id: string): Employee {
     scheduleId: d.scheduleId || undefined,
     rate: num(d.rate),
     pretaxDeferralRate: num(d.pretax) / 100,
-    active: d.active,
+    active: d.terminationDate ? false : d.active,
     hireDate: d.hireDate,
+    terminationDate: d.terminationDate || undefined,
     ssnLast4: d.ssn ? keepLast4(d.ssn) : d.ssnLast4Existing,
     ssnFull: digits(d.ssn).length === 9 ? digits(d.ssn) : undefined,
     ssnOnFile: d.ssnOnFile,
@@ -272,6 +275,7 @@ export default function EmployeeForm() {
       if (d.payType === 'tipped' && !company.tipsEnabled) e.rate = t('이 회사는 팁 기능이 꺼져 있어요', 'Tips are turned off for this company')
       if (!(num(d.rate) > 0)) e.rate = t('0보다 큰 금액을 입력하세요', 'Enter an amount above 0')
       if (!d.hireDate) e.hireDate = t('입사일을 입력하세요', 'Enter the hire date')
+      if (d.terminationDate && d.hireDate && d.terminationDate < d.hireDate) e.terminationDate = t('퇴사일이 입사일보다 빨라요', 'Last day is before the hire date')
       const p = num(d.pretax)
       if (!(p >= 0 && p <= 100)) e.pretax = t('0~100 사이', '0–100')
     }
@@ -514,9 +518,17 @@ export default function EmployeeForm() {
                 >
                   <Money value={d.rate} onChange={(v) => set('rate', v)} />
                 </Field>
-                <Field label={t('입사일 (근무 첫날)', 'Hire date (first day)')} error={err('hireDate')}>
+                <Field label={t('입사일 (근무 첫날)', 'Hire date (first day)')} error={err('hireDate')} hint={t('이 날짜가 든 급여 기간부터 급여에 나와요. PTO 대기 기간도 이 날부터 계산해요.', 'They show up in payroll from the pay period containing this date. PTO waiting periods count from here.')}>
                   <input type="date" value={d.hireDate} onChange={(e) => set('hireDate', e.target.value)} />
                 </Field>
+                {d.id && (
+                  <Field label={t('퇴사일 (마지막 근무일)', 'Last day worked')} error={err('terminationDate')} hint={d.terminationDate ? t('이 날짜가 든 급여 기간까지 마지막 급여가 나가고, PTO 적립도 멈춰요. 지우면 복직 처리돼요.', 'Final check in the pay period with this date; PTO stops accruing. Clear it to rehire.') : t('재직 중이면 비워 두세요.', 'Leave blank while employed.')}>
+                    <div className="row gap">
+                      <input type="date" value={d.terminationDate} min={d.hireDate} onChange={(e) => { set('terminationDate', e.target.value); if (!e.target.value) set('active', true) }} />
+                      {d.terminationDate && <button type="button" className="btn sm ghost" onClick={() => { set('terminationDate', ''); set('active', true) }}>{t('복직', 'Rehire')}</button>}
+                    </div>
+                  </Field>
+                )}
                 <Field label={t('401(k) 세전 저축률', '401(k) pre-tax rate')} error={err('pretax')}>
                   <div className="input-affix">
                     <input inputMode="decimal" value={d.pretax} onChange={(e) => set('pretax', e.target.value)} />

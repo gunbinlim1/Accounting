@@ -1,6 +1,6 @@
 # CLAUDE.md — Payday 고객 포털 (작업 인수인계)
 
-새 세션은 이 파일부터 읽으세요. 지금까지의 대화·결정·구조·남은 일을 정리한 것입니다. (마지막 정리: 2026-11-25 — 휴가(PTO) 관리 추가. 그 전: 급여 스케줄·회차 날짜 변경, 직원 W-2 PDF, 고객 채팅(AI), 신고서 PDF 보관함)
+새 세션은 이 파일부터 읽으세요. 지금까지의 대화·결정·구조·남은 일을 정리한 것입니다. (마지막 정리: 2026-11-26 — 입사·퇴사일 반영, PTO 입사 후 대기 기간. 2026-11-25 휴가(PTO) 관리 추가. 그 전: 급여 스케줄·회차 날짜 변경, 직원 W-2 PDF, 고객 채팅(AI), 신고서 PDF 보관함)
 
 ## 사용자·목적
 - 사용자: 텍사스 CPA 회계법인 **Jae Jin Yang CPA PC** (담당 Gunbin Lim, gunbin.lim@yangdeancpa.com). **응답은 한국어.** 비개발자이므로 설명은 쉬운 말로, 할 일은 단계별로.
@@ -51,7 +51,7 @@
   `insert into public.firm_staff (user_id, name, title) select id, '<이름>', '<직함>' from auth.users where email = '<이메일>' and email_confirmed_at is not null;`
 
 ## 데이터·보안 구조 (Supabase)
-- 마이그레이션(모두 실제 프로젝트에 적용됨): `20261111000000_payroll_schema.sql`, `20261111010000_client_signup_notice.sql`, `20261116000000_client_chat.sql`, `20261116010000_client_chat_grants.sql`, `20261117000000_filed_returns.sql`, `20261117010000_pay_schedules.sql`, `20261125000000_pto.sql`. 새 DB 변경은 파일로 추가하고 `mcp__Supabase__apply_migration`으로 적용.
+- 마이그레이션(모두 실제 프로젝트에 적용됨): `20261111000000_payroll_schema.sql`, `20261111010000_client_signup_notice.sql`, `20261116000000_client_chat.sql`, `20261116010000_client_chat_grants.sql`, `20261117000000_filed_returns.sql`, `20261117010000_pay_schedules.sql`, `20261125000000_pto.sql`, `20261126000000_employment_dates.sql`. 새 DB 변경은 파일로 추가하고 `mcp__Supabase__apply_migration`으로 적용.
 - 테이블: companies(+firm_seen_at), company_members, firm_staff, employees, employee_secrets(암호화), time_entries, pay_runs, pay_results, payments, tax_deposits, activity, audit_log, 비공개 버킷 `payroll-docs/<company_id>/…`.
 - RLS: 회계법인 전체 / 고객 자기 회사 / 직원 본인 기록·급여 결과만(스냅샷·근무 입력은 못 봄). **모든 접근 MFA(aal2) 필수.** 고객 상태 변경(작성 중↔제출만)·제출 잠금·활동 기록 작성자·firm_seen_at은 트리거로 강제. 주요 변경은 audit_log.
 - SSN·라우팅·계좌 전체 번호: `set_employee_secrets` RPC로 pgcrypto 암호화(키 = Vault `payroll_field_key`, 서버에서 생성, 값은 어디에도 출력 안 함 — **잃으면 복구 불가**). 읽기는 회계법인만 `get_employee_secrets`(열람 기록). 화면엔 뒤 4자리·`onFile`.
@@ -59,6 +59,7 @@
 - **신고서 보관함** `filings`(form 941/C-3/940/W-2/W-3/8027/other, period 'YYYY-Qn' 또는 'YYYY', path는 `<company_id>/filings/…` 강제, employee_id 선택=직원별 W-2): 회계법인만 추가·삭제(트리거가 firm 확인·등록자 고정·고객 활동 기록 'filing' 남김), 고객 대표는 보기·내려받기. 저장소 insert/update 정책: `filings` 폴더는 firm만. 고객사 직원(employee)은 못 봄 — 직원 포털에서 본인 W-2 PDF 받기는 아직 없음(후보).
 - **급여 스케줄** `pay_schedules`(회사별, 기본 1개 격주 2026-01-09 자동 생성 + 추가 가능; frequency weekly/biweekly/semimonthly/monthly, first_pay_date, overrides jsonb {원래 지급일: {payDate,start,end}} = 회차별 날짜 변경, is_default 고정·기본은 끌 수 없음). `employees.schedule_id`(null=기본, 같은 회사만 트리거). `pay_runs.period_start/end`. RPC `move_open_run(schedule, from, to)`: 제출 전(draft)만, 그 스케줄 직원 근무 입력을 새 지급일로 옮김. 회차(run)는 여전히 (company_id, pay_date) — **같은 날 지급하는 스케줄은 한 회차로 묶임**. 직원(employee)은 스케줄 읽기 가능, 본인 W-2(filings.employee_id=본인)만 보기·저장소 열기(`filings_read_employee`, `payroll_docs_read_own_w2`).
 - **휴가(PTO)** `pto_policies`(회사별 규칙: accrual per_hour(per_hours시간당 amount)/per_period/annual(1월 1일·입사 첫해는 입사일)/none, max_balance, applies_to 급여 형태), `pto_adjustments`(잔액 조정 기록 — 수정·삭제 불가, 작성자 이름 트리거), `pto_requests`(직원은 본인 것 '대기'로만 신청·대기 중 취소만, 고객사·회계법인은 등록(바로 승인)·승인·거절·승인 후 취소; 결정자·시각 트리거). `time_entries.time_off` jsonb {정책ID: 시간}. 직원은 규칙 읽기·본인 조정·본인 신청만. 잔액은 DB에 저장 안 하고 앱이 처리된 회차+조정으로 계산.
+- **입사·퇴사일** `employees.termination_date`(마지막 근무일, 입사일 이후만 — check). 퇴사 처리 = `termination_date` + `active=false`, 복직 = 둘 다 해제. `pto_policies.waiting_days`(0~730, 입사 후 적립 안 하는 기간).
 - **AI 답변** `supabase/functions/chat-ai/index.ts`: 고객 토큰으로 권한 확인 → handoff 아니고 마지막이 고객 메시지일 때만 → claude-opus-5-5(effort low, JSON 스키마 {reply, handoff, handoff_reason}, server-side fallback "default") → service_role로 ai 메시지 저장, handoff면 담당자 연결. 회사당 시간당 30건 제한. AI에는 회사명·업종·일정·회차 상태·대화만 보냄(SSN·계좌·급여액 없음). 회사 `pay_schedules`(+overrides)를 읽어 스케줄별 다음 3회차를 AI에 알려 줌(날짜 규칙은 `src/lib/schedule.ts`와 같게 유지, v2 배포됨). 함수 수정 시 `deploy_edge_function`으로 재배포(파일 내용 그대로).
 - Supabase security advisor 경고는 의도된 설계 (SECURITY DEFINER RPC 7개 — 채팅 3개 포함 — 는 함수 안에서 권한 확인, employee_secrets 정책 없음 = 직접 접근 차단). 단 Leaked password protection 꺼짐 경고는 사용자가 켜야 함.
 - (이전 기록) Supabase security advisor 경고 5건은 의도된 설계(employee_secrets 정책 없음 = 직접 접근 차단, SECURITY DEFINER RPC 4개는 함수 안에서 권한 확인).
@@ -86,7 +87,8 @@
 - **스케줄 로직** `src/lib/paySchedules.ts`(openPeriod·periodsAfter·periodsBefore·openRuns·scheduleOf·frequencyInfo·validateOverride, 테스트 있음). `src/lib/companyData.ts` `normalizeCompany`: 직원별 `payFrequency`(저장 안 하는 파생값)·`timeDates`(직원→지금 회차 지급일)·`open` 채움 — 불러올 때와 `updateCompany`마다 실행. CompanyData: `schedules`, `open: Record<지급일, CurrentRun>`(예전 `current` 대체), `timeDates`. plan.ts는 회차별로 근무 입력·상태 저장. 스케줄 저장·날짜 변경은 plan이 아니라 `applyAndReload`(API 호출 후 다시 불러오기).
 - store: `payDate`=선택된 열린 회차(기본 가장 빠른 것, `selectRun`, `CompanyProvider initialRun`), `openRuns`, `openRun`, `runEmployees`(이 회차 스케줄 직원만 — 급여 실행 표·계산은 이걸 씀), `period`, `frequency`, `changeRunDates`, `saveSchedule`, `removeSchedule`, `openStatus`. `companySchedule` 상수는 이제 계산에 안 씀(직원 `payFrequency`).
 - UI: `FrequencyBadge`(주기별 색 — 매주 보라·격주 파랑·월 2회 청록·매월 주황 + 아이콘), `RunSwitcher`(열린 회차 2개 이상일 때 홈·급여 실행·회계법인 검토 위), `RunDatesEditor`(홈 히어로 "이번 회차 급여 기간·지급일 변경", draft일 때만), `/schedules`(=`pages/Schedules.tsx`, 회계법인은 `/firm/c/:id/schedules` 탭): 주기 설명표, 스케줄 카드(이번+다음 2회차), 추가·수정·삭제, 직원 배정. 직원 폼에 스케줄 선택(2개 이상일 때), 직원 목록 배지. 회계법인 대기열은 **열린 회차마다 한 줄**(`?run=` 로 바로 열림). 직원 포털 W-2 탭 맨 위 "발행된 W-2 (PDF)".
-- **PTO 계산** `src/lib/pto.ts`(`ptoLedger` 잔액·내역(최대 잔액 넘으면 적립 멈춤, 연봉은 표준 근무시간으로 적립), `approvedHoursInPeriod`(승인 휴가 중 급여 기간에 걸친 평일 비율), `defaultRequestHours` 평일×8, 테스트 있음). 급여 계산(`payroll.ts`): PTO 시간 = `timeOffPay`(시급 직원 시급, 팁 직원 $7.25(팁 크레딧 없음), 연봉 추가 지급 없음) → 총급여·고용주 비용에 포함, 초과근무·최저임금 보전과 무관. 명세서에 "유급 휴가 (PTO)" 줄, CSV에 PTO hrs/pay.
+- **입사·퇴사일 규칙** `src/lib/employment.ts`(테스트 있음): `payableIn(e, 기간 시작, 끝)` = 기간에 하루라도 재직 + (재직 표시 또는 퇴사일 있음) → 급여 실행 대상(store `runEmployees`, 회계법인 대기열). 기간 중 입사 = "첫 급여" 태그, 기간 중 퇴사 = "마지막 급여" 태그, 입사 전·퇴사 후 회차에서는 빠짐. `employmentStatus`(upcoming·active·leaving·former) — 직원 목록 재직/퇴사 구분·개수는 `active` 대신 이걸 씀. 직원 목록 "퇴사 처리…"(날짜 입력)·"복직", 직원 폼에 퇴사일 칸. `computeResults`는 더 이상 active로 거르지 않음(호출 쪽이 고름), 점검은 결과가 있는 직원만. 퇴사한 직원도 직원 포털 로그인 가능(resolveSession이 active 조건 안 씀 — 명세서·W-2).
+- **PTO 계산** `src/lib/pto.ts`(`ptoLedger` 잔액·내역(최대 잔액 넘으면 적립 멈춤, 연봉은 표준 근무시간으로 적립, `ptoEligibleFrom` = 입사일+대기 기간 이전 지급 회차는 적립 안 함·매년 지급은 대기 끝난 날 첫 지급, 퇴사일 이후 시작한 회차·지급 없음), `approvedHoursInPeriod`(승인 휴가 중 급여 기간에 걸친 평일 비율), `defaultRequestHours` 평일×8, 테스트 있음). 급여 계산(`payroll.ts`): PTO 시간 = `timeOffPay`(시급 직원 시급, 팁 직원 $7.25(팁 크레딧 없음), 연봉 추가 지급 없음) → 총급여·고용주 비용에 포함, 초과근무·최저임금 보전과 무관. 명세서에 "유급 휴가 (PTO)" 줄, CSV에 PTO hrs/pay.
 - **PTO 화면** `/pto`(`pages/Pto.tsx`, 회계법인은 `/firm/c/:id/pto` 탭, 사이드바 "휴가 (PTO)"): 규칙 없으면 시작 화면(프리셋 4개: 일한 만큼·매년·급여마다·기록만), 승인 대기 목록(잔액 부족 경고), 직원별 잔액(누르면 내역 + 잔액 조정), 예정된 휴가(취소), 휴가 규칙(문장형 입력), 휴가 등록. 급여 실행 표에 "휴가(PTO) 시간" 열(잔액 표시·초과 시 빨강·"승인 Nh 넣기") + "승인된 휴가 반영" 버튼. 홈에 승인 대기 알림. 직원 포털 "휴가" 탭(잔액 카드·신청·내 신청 내역/취소).
 - 홈(`Dashboard`) **이번 회차** 히어로: **날짜 카드 하나(`.date-card`)** — 위 칸 급여 기간(조금 작게, 시작→끝 + 기간 진행 막대 + 'N일 · 격주 · N일째'), 아래 칸 지급일(더 크게, 옅은 초록 배경, D-day 칩). 사용자 요청: 크기만 키우지 말고 한눈에 들어오되 과하지 않고 깔끔하게. 그 아래 진행 단계. 다음 회차 카드의 지급일도 굵은 초록. **다음 급여 일정** `src/components/PayrollSchedule.tsx`: 스케줄마다 이번 회차 **다음 회차** 한 줄(주기 색 배지·급여 기간·처리 마감·지급일) + "급여 스케줄 관리·추가" 버튼. 처리 안 된 지난 회차(기본 스케줄은 회사 가입일부터, 추가 스케줄은 만든 날부터)는 빨간 알림 한 줄 + "문의하기"(채팅).
 - 급여 내역(`History`) 표에 "급여 기간" 열, CSV에 Period start/end. 급여명세서(`PayStub` `payDate` prop) 맨 위에 급여 기간·지급일.
@@ -97,7 +99,7 @@
 - `vercel.json`: SPA rewrites + 보안 헤더. `.env.production`: Supabase URL·publishable 키. `docs/SUPABASE.md`: 설정 가이드(사용자용, 한국어).
 
 ## 작업 방법
-- 확인: `npm run lint && npm test && npm run build` (단위 테스트 79개). DB 권한 시험: `scripts/test-db.sh`(로컬 PostgreSQL + `supabase/tests/supabase_shim.sql` + `rls_test.sql`, 채팅 포함 67개, CI `database` 잡에서도 실행).
+- 확인: `npm run lint && npm test && npm run build` (단위 테스트 85개). DB 권한 시험: `scripts/test-db.sh`(로컬 PostgreSQL + `supabase/tests/supabase_shim.sql` + `rls_test.sql`, 채팅 포함 67개, CI `database` 잡에서도 실행).
 - 로컬 PostgreSQL: `/usr/lib/postgresql/16/bin`, 데이터 `/var/lib/postgresql/paydaytest` (postgres 사용자로 `pg_ctl ... -o '-p 54329 -k <dir>' start`, 컨테이너 재시작 시 다시 켜야 함). `PGHOST=/var/lib/postgresql/paydaytest PGPORT=54329 PGUSER=postgres scripts/test-db.sh`.
 - 실제 Supabase에서 권한 시험: `rls_test.sql` 내용을 `begin;`으로 감싸고 마지막에 `raise exception`으로 롤백해 `execute_sql`로 실행(남는 데이터 없음 확인).
 - 로그인 후 화면 확인(가짜 백엔드): 스크래치패드에 Playwright 스크립트로 `127.0.0.1:59999/**`를 route 가로채기 → localStorage `sb-127-auth-token`에 aal2 JWT(서명 불필요) 세션 + `/auth/v1/user`, `/rest/v1/<table>`, `/functions/v1/chat-ai` 응답 흉내. 직접 URL 진입 시 회계법인은 `/firm`으로 가므로 화면 안에서 클릭해 이동.

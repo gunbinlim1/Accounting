@@ -1666,3 +1666,17 @@ section.pto-form { margin-bottom: 1rem; border: 2px solid var(--accent-soft); }
 .pto-status.approved { background: var(--good-soft); color: var(--good); }
 .pto-status.denied { background: var(--crit-soft); color: var(--crit); }
 .ok-text { color: var(--good); font-weight: 600; margin: 0; }
+.emp-date-tag { display: inline-block; margin-top: 0.2rem; font-size: 0.7rem; }
+.wait-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.wait-pick .chip { cursor: pointer; }
+.wait-custom { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--text-2); }
+.wait-custom input { width: 4.5rem; min-height: 34px !important; text-align: right; }
+.pto-amount.waiting strong { font-size: 0.95rem; }
+.wait-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.wait-pick .chip { cursor: pointer; }
+.wait-custom { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--text-2); }
+.wait-custom input { width: 4.5rem; min-height: 34px !important; text-align: right; }
+.pto-amount.waiting strong { font-size: 0.95rem; }
+.terminate-box { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.5rem 0.6rem; min-width: 220px; }
+.terminate-box label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.82rem; font-weight: 600; }
+.terminate-box input { padding: 0.4rem 0.5rem; border-radius: 8px; border: 1px solid var(--border); font: inherit; background: var(--surface); color: inherit; }

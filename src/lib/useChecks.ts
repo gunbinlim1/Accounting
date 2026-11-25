@@ -13,7 +13,7 @@ export function useChecks(view?: RunView) {
   return useMemo(
     () =>
       runChecks({
-        employees: src.employees.filter((e) => e.active).map((e) => effectiveEmployee(e, src.time[e.id], e.payFrequency ?? frequency)),
+        employees: src.employees.filter((e) => src.results.some((r) => r.employeeId === e.id)).map((e) => effectiveEmployee(e, src.time[e.id], e.payFrequency ?? frequency)),
         time: src.time,
         results: src.results,
         previous: lastRun?.results,

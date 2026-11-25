@@ -115,6 +115,7 @@ export interface EmployeeRow {
   e_consent: boolean
   documents: Employee['documents'] | null
   schedule_id: string | null
+  termination_date?: string | null
 }
 
 export const employeeFromRow = (r: EmployeeRow): Employee => ({
@@ -145,6 +146,7 @@ export const employeeFromRow = (r: EmployeeRow): Employee => ({
   eConsent: r.e_consent,
   documents: r.documents ?? [],
   scheduleId: r.schedule_id ?? undefined,
+  terminationDate: r.termination_date ?? undefined,
 })
 
 /**
@@ -182,6 +184,7 @@ export function employeeToRow(e: Employee, companyId: string): Omit<EmployeeRow,
     e_consent: !!e.eConsent,
     documents: e.documents ?? [],
     schedule_id: e.scheduleId ?? null,
+    termination_date: e.terminationDate || null,
   }
 }
 
@@ -445,14 +448,15 @@ export const scheduleToRow = (companyId: string, s: Omit<PaySchedule, 'id' | 'is
 export interface PtoPolicyRow {
   id: string; company_id: string; name: string; kind: PtoPolicy['kind']; accrual: PtoPolicy['accrual']
   amount: number | string; per_hours: number | string; max_balance: number | string | null; applies_to: PayType[]; active: boolean
+  waiting_days?: number | null
 }
 export const ptoPolicyFromRow = (r: PtoPolicyRow): PtoPolicy => ({
   id: r.id, name: r.name, kind: r.kind, accrual: r.accrual, amount: num(r.amount), perHours: num(r.per_hours) || 30,
-  maxBalance: r.max_balance === null || r.max_balance === undefined ? null : num(r.max_balance), appliesTo: r.applies_to ?? [], active: r.active,
+  maxBalance: r.max_balance === null || r.max_balance === undefined ? null : num(r.max_balance), appliesTo: r.applies_to ?? [], waitingDays: r.waiting_days ?? 0, active: r.active,
 })
 export const ptoPolicyToRow = (companyId: string, p: Omit<PtoPolicy, 'id'>) => ({
   company_id: companyId, name: p.name.trim(), kind: p.kind, accrual: p.accrual, amount: p.amount, per_hours: p.perHours,
-  max_balance: p.maxBalance, applies_to: p.appliesTo, active: p.active,
+  max_balance: p.maxBalance, applies_to: p.appliesTo, waiting_days: p.waitingDays, active: p.active,
 })
 
 export interface PtoAdjustmentRow {

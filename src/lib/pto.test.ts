@@ -5,7 +5,7 @@ import { parseISODate } from './schedule'
 
 const emp = { id: 'e1', payType: 'hourly', hireDate: '2026-03-02', payFrequency: 'biweekly' } as Employee
 const salaried = { ...emp, id: 'e2', payType: 'salary' } as Employee
-const policy: PtoPolicy = { id: 'p1', name: 'PTO', kind: 'pto', accrual: 'per_hour', amount: 1, perHours: 30, maxBalance: null, appliesTo: ['hourly', 'tipped', 'salary'], active: true }
+const policy: PtoPolicy = { id: 'p1', name: 'PTO', kind: 'pto', accrual: 'per_hour', amount: 1, perHours: 30, maxBalance: null, appliesTo: ['hourly', 'tipped', 'salary'], waitingDays: 0, active: true }
 const run = (payDate: string, hours: number, used = 0, id = 'e1'): PayRun => ({
   id: `run-${payDate}`, payDate, approvedAt: '', results: [{ employeeId: id, hours } as PayrollResult],
   time: { [id]: { regular: hours, overtime: 0, cashTips: 0, cardTips: 0, ...(used ? { timeOff: { p1: used } } : {}) } },
@@ -39,6 +39,30 @@ describe('PTO 잔액', () => {
     const annual = ptoLedger(emp, { ...policy, accrual: 'annual', amount: 40 }, [], [], parseISODate('2027-02-01'))
     expect(annual.entries.map((x) => x.date)).toEqual(['2026-03-02', '2027-01-01'])
     expect(annual.balance).toBe(80)
+  })
+})
+
+describe('대기 기간 · 퇴사', () => {
+  it('입사 후 대기 기간에는 적립하지 않는다', () => {
+    const wait = { ...policy, waitingDays: 90 } // 3/2 입사 → 5/31부터
+    const b = ptoLedger(emp, wait, [run('2026-05-29', 80), run('2026-06-12', 80)], [], today)
+    expect(b.entries.map((x) => x.date)).toEqual(['2026-06-12'])
+    expect(b.balance).toBe(2.67)
+  })
+
+  it('매년 지급은 대기 기간이 끝난 날 처음 지급', () => {
+    const b = ptoLedger(emp, { ...policy, accrual: 'annual', amount: 40, waitingDays: 90 }, [], [], parseISODate('2027-02-01'))
+    expect(b.entries.map((x) => x.date)).toEqual(['2026-05-31', '2027-01-01'])
+  })
+
+  it('퇴사 후에는 적립하지 않지만 마지막 급여(퇴사 전 근무분)는 적립', () => {
+    const left = { ...emp, terminationDate: '2026-11-18' }
+    const last = { ...run('2026-11-27', 40), periodStart: '2026-11-14' }
+    const after = { ...run('2026-12-11', 40), periodStart: '2026-11-28' }
+    const b = ptoLedger(left, policy, [last, after], [], today)
+    expect(b.entries.map((x) => x.date)).toEqual(['2026-11-27'])
+    const annual = ptoLedger(left, { ...policy, accrual: 'annual', amount: 40 }, [], [], parseISODate('2027-03-01'))
+    expect(annual.entries.map((x) => x.date)).toEqual(['2026-03-02'])
   })
 })
 

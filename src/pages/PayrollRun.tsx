@@ -127,9 +127,11 @@ export default function PayrollRun() {
   /** 팁 기능을 쓰는 회사이거나, 이번 회차에 팁이 이미 입력된 경우 팁 칸을 보여 줌 */
   const tipsOn = company.tipsEnabled || employees.some((e) => e.active && ((time[e.id]?.cashTips ?? 0) + (time[e.id]?.cardTips ?? 0) > 0))
 
-  const active = runEmployees.filter((e) => e.active)
+  // 이 급여 기간에 일한 직원 (입사·퇴사일 반영 — 기간 중 퇴사하면 마지막 급여로 포함)
+  const active = runEmployees
   const pay = parseISODate(payDate)
   const periodStart = parseISODate(period.start)
+  const md = (iso: string) => formatDate(parseISODate(iso), locale, { month: 'short', day: 'numeric' })
   const periodEnd = parseISODate(period.end)
   const due = timeLeft(deadline, now, t)
   const totals = sumResults(results)
@@ -368,6 +370,8 @@ export default function PayrollRun() {
                                 {worst && worst !== 'info' && <span className={`flag ${worst}`} title={lang === 'ko' ? issues[0].ko : issues[0].en}>{sevIcon[worst]}</span>}
                               </strong>
                               <span className="muted small">{jobLabel(e, t)}</span>
+                              {e.hireDate >= period.start && <span className="tag info emp-date-tag">{t(`${md(e.hireDate)} 입사 · 첫 급여`, `Started ${md(e.hireDate)} · first check`)}</span>}
+                              {e.terminationDate && e.terminationDate <= period.end && <span className="tag warn emp-date-tag">{t(`${md(e.terminationDate)} 퇴사 · 마지막 급여`, `Left ${md(e.terminationDate)} · final check`)}</span>}
                             </div>
                           </div>
                         </td>

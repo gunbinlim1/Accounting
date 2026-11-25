@@ -4,6 +4,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { periodsPerYear } from '../config/payrollConfig'
 import FrequencyBadge from '../components/FrequencyBadge'
 import { scheduleOf } from '../lib/paySchedules'
+import { employmentStatus, tenureMonths } from '../lib/employment'
+import { toISODate } from '../lib/schedule'
 import { i9Badge, i9State, maskSsn } from '../lib/compliance'
 import { formatCurrency, formatCurrencyWhole, formatDate, initials } from '../lib/format'
 import { filingLabel, jobLabel } from '../lib/labels'
@@ -19,19 +21,11 @@ type Sort = 'name' | 'role' | 'hire' | 'pay'
 /** 이름으로 정해지는 아바타 색 (항목 구분용, 데이터 의미 없음) */
 const avatarHue = (name: string) => [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7)
 
-function tenure(hireDate: string, today: Date, t: (ko: string, en: string) => string) {
-  const d = new Date(hireDate)
-  const months = (today.getFullYear() - d.getFullYear()) * 12 + today.getMonth() - d.getMonth()
-  if (months < 1) return t('신규', 'New')
-  if (months < 12) return t(`${months}개월`, `${months} mo`)
-  const y = Math.floor(months / 12)
-  return t(`${y}년`, `${y} yr`)
-}
 
 export default function Employees() {
   const { t, locale } = usePrefs()
   const { session } = usePortal()
-  const { employees, results, toggleActive, company, schedules } = useStore()
+  const { employees, results, setTermination, company, schedules } = useStore()
   const multi = schedules.filter((x) => x.active).length > 1
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
@@ -39,23 +33,27 @@ export default function Employees() {
   const [sort, setSort] = useState<Sort>('name')
   const [menu, setMenu] = useState<string | null>(null)
   const [today] = useState(() => new Date())
+  const todayIso = toISODate(today)
+  const [terminating, setTerminating] = useState<{ id: string; date: string } | null>(null)
+  /** 재직 중(입사 예정·퇴사 예정 포함) */
+  const current = (e: Employee) => employmentStatus(e, todayIso) !== 'former'
   const me = session?.name ?? company.ownerName
 
   const enriched = useMemo(
     () =>
       employees.map((e) => {
         const i9 = i9Badge(i9State(e, today), t)
-        return { e, i9, attention: e.active && (i9.tone !== 'good' || !e.w4) }
+        return { e, i9, attention: employmentStatus(e, todayIso) !== 'former' && (i9.tone !== 'good' || !e.w4) }
       }),
-    [employees, today, t],
+    [employees, today, todayIso, t],
   )
 
   const counts: Record<Filter, number> = {
-    active: employees.filter((e) => e.active).length,
+    active: employees.filter(current).length,
     attention: enriched.filter((x) => x.attention).length,
-    tipped: employees.filter((e) => e.active && e.payType === 'tipped').length,
-    hourly: employees.filter((e) => e.active && e.payType === 'hourly').length,
-    inactive: employees.filter((e) => !e.active).length,
+    tipped: employees.filter((e) => current(e) && e.payType === 'tipped').length,
+    hourly: employees.filter((e) => current(e) && e.payType === 'hourly').length,
+    inactive: employees.filter((e) => !current(e)).length,
     all: employees.length,
   }
   const filterLabel: Record<Filter, string> = {
@@ -72,11 +70,11 @@ export default function Employees() {
     .filter(({ e, attention }) => {
       const q = query.trim().toLowerCase()
       if (q && !`${fullName(e)} ${sortName(e)} ${jobLabel(e, t)} ${e.id} ${e.email ?? ''}`.toLowerCase().includes(q)) return false
-      if (filter === 'active') return e.active
-      if (filter === 'inactive') return !e.active
+      if (filter === 'active') return current(e)
+      if (filter === 'inactive') return !current(e)
       if (filter === 'attention') return attention
-      if (filter === 'tipped') return e.active && e.payType === 'tipped'
-      if (filter === 'hourly') return e.active && e.payType === 'hourly'
+      if (filter === 'tipped') return current(e) && e.payType === 'tipped'
+      if (filter === 'hourly') return current(e) && e.payType === 'hourly'
       return true
     })
     .sort((a, b) => {
@@ -161,14 +159,16 @@ export default function Employees() {
               const r = results.find((x) => x.employeeId === e.id)
               const hue = avatarHue(fullName(e))
               return (
-                <li key={e.id} className={e.active ? '' : 'inactive'}>
+                <li key={e.id} className={current(e) ? '' : 'inactive'}>
                   <button className="plist-row" onClick={() => navigate(`/employees/${e.id}`)}>
                     <span className="plist-person">
                       <span className="avatar" style={{ background: `hsl(${hue} 70% 92%)`, color: `hsl(${hue} 45% 32%)` }}>{initials(fullName(e))}</span>
                       <span className="plist-name">
-                        <strong>{fullName(e)}{!e.active && <span className="tag neutral">{t('퇴사', 'Former')}</span>}{multi && <> <FrequencyBadge frequency={e.payFrequency ?? 'biweekly'} name={scheduleOf(e, schedules)?.name || undefined} size="sm" /></>}</strong>
+                        <strong>{fullName(e)}<EmploymentTag e={e} today={todayIso} />{multi && <> <FrequencyBadge frequency={e.payFrequency ?? 'biweekly'} name={scheduleOf(e, schedules)?.name || undefined} size="sm" /></>}</strong>
                         <small>
-                          {jobLabel(e, t)} · {t('입사', 'Hired')} {formatDate(new Date(e.hireDate + 'T00:00'), locale, { year: 'numeric', month: 'short', day: 'numeric' })} ({tenure(e.hireDate, today, t)}) · SSN {maskSsn(e.ssnLast4)}
+                          {jobLabel(e, t)} · {t('입사', 'Hired')} {formatDate(new Date(e.hireDate + 'T00:00'), locale, { year: 'numeric', month: 'short', day: 'numeric' })}
+                          {e.terminationDate && <> → {t('퇴사', 'Left')} {formatDate(new Date(e.terminationDate + 'T00:00'), locale, { year: 'numeric', month: 'short', day: 'numeric' })}</>}
+                          {e.hireDate <= todayIso && <> ({tenureLabel(tenureMonths(e, todayIso), t)})</>} · SSN {maskSsn(e.ssnLast4)}
                         </small>
                       </span>
                     </span>
@@ -206,10 +206,21 @@ export default function Employees() {
                       <div className="menu-pop" onClick={(ev) => ev.stopPropagation()}>
                         <Link to={`/employees/${e.id}`}><Pencil size={15} aria-hidden /> {t('정보·서류 수정', 'Edit details & forms')}</Link>
                         <Link to={`/simulator?e=${e.id}`}><SlidersHorizontal size={15} aria-hidden /> {t('급여 시뮬레이션', 'Pay what-if')}</Link>
-                        <button onClick={() => { toggleActive(e.id); setMenu(null) }}>
-                          {e.active ? <UserX size={15} aria-hidden /> : <UserCheck size={15} aria-hidden />}
-                          {e.active ? t('퇴사 처리', 'Deactivate') : t('복직', 'Reactivate')}
-                        </button>
+                        {e.terminationDate || !e.active ? (
+                          <button onClick={() => { setTermination(e.id, null, me); setMenu(null) }}>
+                            <UserCheck size={15} aria-hidden /> {t('복직 (퇴사 취소)', 'Rehire / undo termination')}
+                          </button>
+                        ) : terminating?.id === e.id ? (
+                          <div className="terminate-box">
+                            <label>{t('퇴사일 (마지막 근무일)', 'Last day worked')}<input type="date" value={terminating.date} min={e.hireDate} onChange={(ev) => setTerminating({ id: e.id, date: ev.target.value })} /></label>
+                            <small className="muted">{t('이 날짜가 든 급여 기간까지 마지막 급여가 나가요.', 'Their final check is in the pay period that includes this date.')}</small>
+                            <button className="btn sm primary" disabled={!terminating.date || terminating.date < e.hireDate} onClick={() => { setTermination(e.id, terminating.date, me); setTerminating(null); setMenu(null) }}>{t('퇴사 처리', 'Terminate')}</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setTerminating({ id: e.id, date: todayIso })}>
+                            <UserX size={15} aria-hidden /> {t('퇴사 처리…', 'Terminate…')}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -225,3 +236,17 @@ export default function Employees() {
     </div>
   )
 }
+
+/** 입사 예정 · 퇴사 예정 · 퇴사 표시 */
+function EmploymentTag({ e, today }: { e: Employee; today: string }) {
+  const { t, locale } = usePrefs()
+  const md = (iso: string) => formatDate(new Date(`${iso}T00:00`), locale, { month: 'short', day: 'numeric' })
+  const s = employmentStatus(e, today)
+  if (s === 'upcoming') return <span className="tag info">{t(`${md(e.hireDate)} 입사 예정`, `Starts ${md(e.hireDate)}`)}</span>
+  if (s === 'leaving') return <span className="tag warn">{t(`${md(e.terminationDate!)} 퇴사 예정`, `Leaving ${md(e.terminationDate!)}`)}</span>
+  if (s === 'former') return <span className="tag neutral">{e.terminationDate ? t(`${md(e.terminationDate)} 퇴사`, `Left ${md(e.terminationDate)}`) : t('퇴사', 'Former')}</span>
+  return null
+}
+
+const tenureLabel = (months: number, t: (ko: string, en: string) => string) =>
+  months < 1 ? t('1개월 미만', '< 1 mo') : months < 12 ? t(`${months}개월`, `${months} mo`) : t(`${Math.floor(months / 12)}년 ${months % 12}개월`, `${Math.floor(months / 12)}y ${months % 12}m`)

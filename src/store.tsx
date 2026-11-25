@@ -7,6 +7,7 @@ import {
   setPtoRequestStatus, updateSchedule as apiUpdateSchedule,
 } from './lib/db/api'
 import { cutoffOf, frequencyInfo, openRuns as computeOpenRuns, scheduleOf, type OpenRun } from './lib/paySchedules'
+import { payableIn } from './lib/employment'
 import { ytdFor } from './lib/ytd'
 import { usePortal } from './portal'
 import type {
@@ -70,7 +71,8 @@ interface Store {
   lastRun?: PayRun
   approvedForPayDate?: PayRun
   upsertEmployee: (e: Employee, actorName?: string) => void
-  toggleActive: (id: string) => void
+  /** 퇴사 처리(퇴사일) 또는 복직(null) */
+  setTermination: (id: string, date: string | null, actorName: string, actor?: ActivityEvent['actor']) => void
   setTime: (id: string, patch: Partial<TimeEntry>) => void
   updateCompanyInfo: (c: Company, actorName: string) => void
   submitRun: (actorName: string) => void
@@ -121,7 +123,8 @@ export function CompanyProvider({ companyId, initialRun, children }: { companyId
     const ids = new Set(openRun.schedules.map((x) => x.schedule.id))
     const runEmployees = data.employees.filter((e) => {
       const s = scheduleOf(e, data.schedules)
-      return s && ids.has(s.id) && data.timeDates[e.id] === payDate
+      // 입사·퇴사일로 이 급여 기간에 일한 사람만 (기간 중 퇴사하면 마지막 급여 포함)
+      return s && ids.has(s.id) && data.timeDates[e.id] === payDate && payableIn(e, openRun.start, openRun.end)
     })
     const ytd = ytdFor(data.runs, payDate)
     const ytdGross = Object.fromEntries(Object.entries(ytd).map(([id, y]) => [id, y.gross]))
@@ -195,8 +198,17 @@ export function CompanyProvider({ companyId, initialRun, children }: { companyId
         }
       }),
 
-    toggleActive: (id) =>
-      update((c) => ({ ...c, employees: c.employees.map((e) => (e.id === id ? { ...e, active: !e.active } : e)) })),
+    setTermination: (id, date, actorName, actor = 'client') =>
+      update((c) => {
+        const e = c.employees.find((x) => x.id === id)
+        if (!e) return c
+        const label = date ? `${date.slice(5).replace('-', '/')}` : ''
+        return {
+          ...c,
+          employees: c.employees.map((x) => (x.id === id ? { ...x, active: !date, terminationDate: date ?? undefined } : x)),
+          activity: [event(actor, actorName, 'employee', date ? `퇴사 처리: ${fullName(e)} (퇴사일 ${label})` : `복직: ${fullName(e)}`, date ? `Terminated: ${fullName(e)} (last day ${label})` : `Rehired: ${fullName(e)}`), ...c.activity],
+        }
+      }),
 
     setTime: (id, patch) =>
       update((c) => ({ ...c, time: { ...c.time, [id]: { ...(c.time[id] ?? emptyTime), ...patch } } })),
@@ -210,7 +222,7 @@ export function CompanyProvider({ companyId, initialRun, children }: { companyId
       }),
 
     submitRun: (actorName) => {
-      const overrides = derived.runEmployees.filter((e) => e.active && data.time[e.id]?.rate !== undefined).length
+      const overrides = derived.runEmployees.filter((e) => data.time[e.id]?.rate !== undefined).length
       setStatus(
         'submitted',
         event('client', actorName, 'submit',

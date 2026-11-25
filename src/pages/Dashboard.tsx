@@ -13,7 +13,8 @@ import RunSwitcher from '../components/RunSwitcher'
 import { formatCurrencyWhole, formatDate } from '../lib/format'
 import { sumResults } from '../lib/payroll'
 import { timeLeft } from '../lib/runStatus'
-import { daysBetween, frequencyLabel, parseISODate, upcomingDeadlines } from '../lib/schedule'
+import { daysBetween, frequencyLabel, parseISODate, toISODate, upcomingDeadlines } from '../lib/schedule'
+import { employmentStatus } from '../lib/employment'
 import { segmentsOf } from '../lib/segments'
 import { useChecks } from '../lib/useChecks'
 import { usePortal } from '../portal'
@@ -43,7 +44,7 @@ export default function Dashboard() {
   const hello = hour < 12 ? t('좋은 아침이에요', 'Good morning') : hour < 18 ? t('좋은 오후예요', 'Good afternoon') : t('좋은 저녁이에요', 'Good evening')
   const firstName = (session?.name ?? company.ownerName).split(' ')[0]
   const flagged = checks.filter((c) => c.severity !== 'info').length
-  const activeCount = employees.filter((e) => e.active).length
+  const activeCount = employees.filter((e) => employmentStatus(e, toISODate(now)) !== 'former').length
 
   const cta = {
     draft: { text: t('급여 입력 시작', 'Start payroll'), msg: flagged ? t(`제출 전에 살펴볼 항목이 ${flagged}건 있어요`, `${flagged} item(s) to look at before submitting`) : t('근무시간과 팁을 입력하고 회계법인에 제출하세요', 'Enter hours and tips, then submit to your CPA') },

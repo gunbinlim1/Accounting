@@ -36,7 +36,8 @@ export async function resolveSession(): Promise<Session | null> {
   if (member) return { role: 'client', companyId: member.company_id, name: member.companies?.owner_name || email, email }
 
   const emp = must(
-    await client.from('employees').select('id, company_id, first_name, last_name').eq('user_id', user.id).eq('active', true).limit(1).maybeSingle(),
+    // 퇴사한 직원도 급여명세서·W-2를 봐야 하므로 재직 여부와 상관없이 (재직 중인 기록 우선)
+    await client.from('employees').select('id, company_id, first_name, last_name').eq('user_id', user.id).order('active', { ascending: false }).limit(1).maybeSingle(),
   ) as { id: string; company_id: string; first_name: string; last_name: string } | null
   if (emp) return { role: 'employee', companyId: emp.company_id, employeeId: emp.id, name: `${emp.first_name} ${emp.last_name}`, email }
 

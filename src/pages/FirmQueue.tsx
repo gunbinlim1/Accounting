@@ -15,6 +15,7 @@ import { parseISODate } from '../lib/schedule'
 import { ytdFor } from '../lib/ytd'
 import { usePortal } from '../portal'
 import { firstOpen } from '../lib/companyData'
+import { payableIn } from '../lib/employment'
 import { cutoffOf, openRuns, scheduleOf } from '../lib/paySchedules'
 import FrequencyBadge from '../components/FrequencyBadge'
 import { usePrefs } from '../prefs'
@@ -47,7 +48,7 @@ export default function FirmQueue() {
         const current = c.open[run.payDate] ?? { payDate: run.payDate, status: 'draft' as RunStatus }
         const status: RunStatus = current.status
         const ids = new Set(run.schedules.map((x) => x.schedule.id))
-        const runEmployees = c.employees.filter((e) => ids.has(scheduleOf(e, c.schedules)?.id ?? '') && c.timeDates[e.id] === run.payDate)
+        const runEmployees = c.employees.filter((e) => ids.has(scheduleOf(e, c.schedules)?.id ?? '') && c.timeDates[e.id] === run.payDate && payableIn(e, run.start, run.end))
         const frequency = run.schedules[0].schedule.frequency
         const ytdAll = ytdFor(c.runs, run.payDate)
         const ytd = Object.fromEntries(Object.entries(ytdAll).map(([id, y]) => [id, y.gross]))
@@ -55,7 +56,7 @@ export default function FirmQueue() {
           ? current.snapshot
           : { employees: runEmployees, time: c.time, results: computeResults(runEmployees, c.time, ytdAll, c.company.sutaRate) }
         const checks = runChecks({
-          employees: view.employees.filter((e) => e.active).map((e) => effectiveEmployee(e, view.time[e.id], e.payFrequency ?? frequency)),
+          employees: view.employees.filter((e) => view.results.some((r) => r.employeeId === e.id)).map((e) => effectiveEmployee(e, view.time[e.id], e.payFrequency ?? frequency)),
           time: view.time,
           results: view.results,
           ytdGross: ytd,

@@ -109,6 +109,8 @@ export interface Employee {
   eConsent?: boolean
   /** 업로드한 서류 기록 (파일 자체는 서버 단계에서 보관) */
   documents?: UploadedDoc[]
+  /** 퇴사일(마지막 근무일) YYYY-MM-DD — 이 날짜가 든 급여 기간까지 마지막 급여 */
+  terminationDate?: string
   /** 급여 스케줄 (없으면 회사 기본 스케줄) */
   scheduleId?: string
   /** 불러올 때 채움: 이 직원 스케줄의 지급 주기 (저장 안 함) */
@@ -396,6 +398,8 @@ export interface PtoPolicy {
   maxBalance: number | null
   /** 적용 급여 형태 */
   appliesTo: PayType[]
+  /** 입사 후 적립 안 하는 기간(일) */
+  waitingDays: number
   active: boolean
 }
 

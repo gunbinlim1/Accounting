@@ -1,8 +1,8 @@
 import { CalendarPlus, ChevronRight, Download, FileCheck2, Palmtree, FileText, Landmark, Languages, LogOut, MailCheck, ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { downloadFiling, listFilings, type Filing } from '../lib/filings'
-import { accrualText, defaultRequestHours, policyAppliesTo, ptoLedger } from '../lib/pto'
-import { parseISODate } from '../lib/schedule'
+import { accrualText, defaultRequestHours, policyAppliesTo, ptoEligibleFrom, ptoLedger } from '../lib/pto'
+import { parseISODate, toISODate } from '../lib/schedule'
 import type { Employee, PtoRequest } from '../types'
 import { Navigate } from 'react-router-dom'
 import { payMethodLabel } from '../components/PaymentsTable'
@@ -232,6 +232,7 @@ function MyTimeOff({ employee: me }: { employee: Employee }) {
               <span className="dc-label"><Palmtree size={14} aria-hidden /> {p.name}</span>
               <strong className="my-pto-hours">{Math.round((b.balance - use) * 100) / 100}<small>{t('시간', 'h')}</small></strong>
               <small className="muted">{t('사용 가능', 'available')}{use > 0 ? t(` · 이번 급여에서 ${use}시간 사용`, ` · ${use}h on this paycheck`) : ''}{pending > 0 ? t(` · 승인 대기 ${pending}시간`, ` · ${pending}h pending`) : ''}</small>
+              {ptoEligibleFrom(me, p) > toISODate(now) && <small className="warn-text">{t(`입사 후 대기 기간 — ${formatDate(parseISODate(ptoEligibleFrom(me, p)), locale, { month: 'short', day: 'numeric' })}부터 적립`, `Waiting period — accrues from ${formatDate(parseISODate(ptoEligibleFrom(me, p)), locale, { month: 'short', day: 'numeric' })}`)}</small>}
               <small className="muted">{accrualText(p, t)}</small>
             </section>
           )

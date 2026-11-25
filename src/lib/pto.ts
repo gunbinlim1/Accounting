@@ -31,6 +31,14 @@ export interface PtoBalance {
 
 const r2 = (n: number) => roundCents(n)
 
+/** 이 직원이 이 규칙으로 적립을 시작하는 날 (입사일 + 대기 기간) */
+export function ptoEligibleFrom(e: Pick<Employee, 'hireDate'>, p: Pick<PtoPolicy, 'waitingDays'>): string {
+  if (!p.waitingDays) return e.hireDate
+  const d = parseISODate(e.hireDate)
+  d.setDate(d.getDate() + p.waitingDays)
+  return toISODate(d)
+}
+
 export const policyAppliesTo = (p: PtoPolicy, e: Pick<Employee, 'payType'>) => p.active && p.appliesTo.includes(e.payType)
 
 /** 한 직원의 한 정책 잔액과 내역 (오래된 것부터) */
@@ -43,22 +51,27 @@ export function ptoLedger(e: Employee, p: PtoPolicy, runs: PayRun[], adjustments
   }
 
   const todayIso = toISODate(today)
+  // 대기 기간이 끝난 날부터 적립, 퇴사일 이후에는 적립 없음
+  const from = ptoEligibleFrom(e, p)
+  const until = e.terminationDate
   if (p.accrual === 'annual' && p.amount > 0) {
-    const hireYear = Number(e.hireDate.slice(0, 4))
-    for (let y = hireYear; y <= today.getFullYear(); y++) {
-      const date = y === hireYear ? e.hireDate : `${y}-01-01`
-      if (date <= todayIso) events.push({ date, kind: 'granted', hours: p.amount })
+    const firstYear = Number(from.slice(0, 4))
+    for (let y = firstYear; y <= today.getFullYear(); y++) {
+      const date = y === firstYear ? from : `${y}-01-01`
+      if (date <= todayIso && (!until || date <= until)) events.push({ date, kind: 'granted', hours: p.amount })
     }
   }
 
   for (const run of [...runs].sort((a, b) => a.payDate.localeCompare(b.payDate))) {
     const result = run.results.find((x) => x.employeeId === e.id)
     if (!result) continue
-    if (p.accrual === 'per_hour' && p.amount > 0) {
+    // 적립은 지급일 기준으로 대기 기간이 끝난 뒤의 회차부터 (마지막 급여는 퇴사 전 근무분이라 포함)
+    const accrues = run.payDate >= from && (!until || (run.periodStart ?? run.payDate) <= until)
+    if (accrues && p.accrual === 'per_hour' && p.amount > 0) {
       const worked = e.payType === 'salary' ? standardHours[e.payFrequency ?? 'biweekly'] : result.hours
       if (worked > 0) events.push({ date: run.payDate, kind: 'accrued', hours: (worked * p.amount) / p.perHours, note: `${worked}h` })
     }
-    if (p.accrual === 'per_period' && p.amount > 0) events.push({ date: run.payDate, kind: 'accrued', hours: p.amount })
+    if (accrues && p.accrual === 'per_period' && p.amount > 0) events.push({ date: run.payDate, kind: 'accrued', hours: p.amount })
     const used = run.time[e.id]?.timeOff?.[p.id] ?? 0
     if (used > 0) events.push({ date: run.payDate, kind: 'used', hours: -used })
   }
@@ -124,8 +137,9 @@ export function approvedHoursInPeriod(requests: PtoRequest[], employeeId: string
 }
 
 /** 화면용: 적립 방식 설명 */
-export function accrualText(p: Pick<PtoPolicy, 'accrual' | 'amount' | 'perHours' | 'maxBalance'>, t: (ko: string, en: string) => string): string {
-  const cap = p.maxBalance !== null ? t(` · 최대 ${p.maxBalance}시간`, ` · max ${p.maxBalance}h`) : ''
+export function accrualText(p: Pick<PtoPolicy, 'accrual' | 'amount' | 'perHours' | 'maxBalance' | 'waitingDays'>, t: (ko: string, en: string) => string): string {
+  const cap = (p.maxBalance !== null ? t(` · 최대 ${p.maxBalance}시간`, ` · max ${p.maxBalance}h`) : '')
+    + (p.waitingDays ? t(` · 입사 후 ${p.waitingDays}일 대기`, ` · after ${p.waitingDays}-day wait`) : '')
   switch (p.accrual) {
     case 'per_hour':
       return t(`근무 ${p.perHours}시간마다 ${p.amount}시간 적립`, `${p.amount}h per ${p.perHours}h worked`) + cap

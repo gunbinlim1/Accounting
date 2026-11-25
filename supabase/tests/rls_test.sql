@@ -340,6 +340,17 @@ select test.denied($$delete from public.pto_requests$$, 'requests cannot be dele
 select test.denied($$insert into public.pto_requests (company_id, employee_id, policy_id, start_date, end_date, hours) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', '2027-02-01', '2027-01-01', 8)$$, 'end date before start rejected');
 reset role;
 
+-- ── 입사·퇴사일, PTO 대기 기간
+select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
+set role authenticated;
+update public.employees set termination_date = '2026-12-04', active = false where id = '00000000-0000-0000-0000-0000000000e2';
+select test.ok((select termination_date = '2026-12-04' and not active from public.employees where id = '00000000-0000-0000-0000-0000000000e2'), 'client records a termination date');
+select test.denied($$update public.employees set termination_date = '2025-01-01' where id = '00000000-0000-0000-0000-0000000000e2'$$, 'termination cannot be before hire');
+update public.pto_policies set waiting_days = 90;
+select test.ok((select waiting_days = 90 from public.pto_policies), 'client sets a PTO waiting period');
+select test.denied($$update public.pto_policies set waiting_days = 5000$$, 'waiting period is bounded');
+reset role;
+
 -- ── 회계법인이 고객 삭제
 select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
 set role authenticated;
