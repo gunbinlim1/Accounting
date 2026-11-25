@@ -139,3 +139,27 @@ describe('Fringe Benefit (Pub. 15-B)', () => {
     expect(r.fringeLines[0].fit).toBe(500)
   })
 })
+
+describe('유급 휴가 (PTO)', () => {
+  const pto = (h: number) => ({ timeOff: { p1: h } })
+  it('시급 직원은 시급으로 지급하고 초과근무에는 넣지 않는다', () => {
+    const r = run(cook, { regular: 72, overtime: 0, ...pto(8) })
+    expect(r.timeOffHours).toBe(8)
+    expect(r.timeOffPay).toBe(128)
+    expect(r.grossPay).toBe(16 * 72 + 128)
+    expect(r.overtimePay).toBe(0)
+  })
+  it('팁 직원은 팁 크레딧 없이 최저임금으로 지급하고, 최저임금 보전 계산에서는 뺀다', () => {
+    const withPto = run(server, { regular: 40, cashTips: 400, ...pto(8) })
+    const without = run(server, { regular: 40, cashTips: 400 })
+    expect(withPto.timeOffPay).toBe(58)
+    expect(withPto.tipMakeUp).toBe(without.tipMakeUp)
+    expect(withPto.grossPay).toBeCloseTo(without.grossPay + 58, 2)
+  })
+  it('연봉 직원은 추가 지급 없이 시간만 기록한다', () => {
+    const r = run(manager, pto(16))
+    expect(r.timeOffHours).toBe(16)
+    expect(r.timeOffPay).toBe(0)
+    expect(r.grossPay).toBe(run(manager).grossPay)
+  })
+})

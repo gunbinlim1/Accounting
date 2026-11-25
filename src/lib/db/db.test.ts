@@ -26,6 +26,7 @@ const base: CompanyData = {
   open: { '2026-11-13': { payDate: '2026-11-13', status: 'draft' } },
   activity: [],
   deposits: [],
+  pto: { policies: [], adjustments: [], requests: [] },
 }
 
 describe('row mappers', () => {

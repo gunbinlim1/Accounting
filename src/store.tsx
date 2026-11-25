@@ -2,12 +2,15 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { defaultTimeFor, industries } from './config/industries'
 import { computeResults } from './lib/compute'
 import { effectiveEmployee } from './lib/payroll'
-import { addSchedule as apiAddSchedule, deleteSchedule as apiDeleteSchedule, moveOpenRun, updateSchedule as apiUpdateSchedule } from './lib/db/api'
+import {
+  addPtoAdjustment, addPtoRequest, addSchedule as apiAddSchedule, deleteSchedule as apiDeleteSchedule, moveOpenRun, savePtoPolicy as apiSavePtoPolicy,
+  setPtoRequestStatus, updateSchedule as apiUpdateSchedule,
+} from './lib/db/api'
 import { cutoffOf, frequencyInfo, openRuns as computeOpenRuns, scheduleOf, type OpenRun } from './lib/paySchedules'
 import { ytdFor } from './lib/ytd'
 import { usePortal } from './portal'
 import type {
-  ActivityEvent, Authorizations, Company, CompanyData, CurrentRun, Employee, PayFrequency, PayRun, PaySchedule, PayrollResult, RunStatus, TaxDeposit, TaxKind, TimeEntry,
+  ActivityEvent, Authorizations, Company, CompanyData, CompanyPto, CurrentRun, Employee, PayFrequency, PayRun, PaySchedule, PayrollResult, PtoPolicy, PtoRequestStatus, RunStatus, TaxDeposit, TaxKind, TimeEntry,
 } from './types'
 import { federalDepositFor, paymentsFor } from './lib/payments'
 import { fullName } from './lib/names'
@@ -47,6 +50,13 @@ interface Store {
   changeRunDates: (dates: { payDate: string; start: string; end: string }, actorName: string, actor?: ActivityEvent['actor']) => Promise<void>
   saveSchedule: (s: Omit<PaySchedule, 'id' | 'isDefault'> & { id?: string }, actorName: string, actor?: ActivityEvent['actor']) => Promise<void>
   removeSchedule: (id: string, actorName: string, actor?: ActivityEvent['actor']) => Promise<void>
+  /** PTO: 규칙·조정·신청 */
+  pto: CompanyPto
+  savePtoPolicy: (p: Omit<PtoPolicy, 'id'> & { id?: string }, actorName: string, actor?: ActivityEvent['actor']) => Promise<void>
+  adjustPto: (a: { employeeId: string; policyId: string; hours: number; effectiveDate: string; reason: string }, actorName: string, actor?: ActivityEvent['actor']) => Promise<void>
+  /** 휴가 신청(직원) 또는 기록(고객사·회계법인 — 바로 승인) */
+  requestPto: (r: { employeeId: string; policyId: string; startDate: string; endDate: string; hours: number; note: string }, by: 'employee' | ActivityEvent['actor'], actorName: string) => Promise<void>
+  decidePto: (id: string, status: PtoRequestStatus, actorName: string, actor?: ActivityEvent['actor'] | 'employee', note?: string) => Promise<void>
   /** 회차 상태 (새 급여 기간이 시작되면 자동으로 draft) */
   status: RunStatus
   current: CurrentRun
@@ -327,6 +337,39 @@ export function CompanyProvider({ companyId, initialRun, children }: { companyId
         activity: [event(actor, actorName, 'settings', `급여 스케줄 삭제: ${s?.name || ''}`, `Pay schedule removed: ${s?.name || ''}`), ...c.activity],
       }))
       await applyAndReload(() => apiDeleteSchedule(id))
+    },
+
+    pto: data.pto,
+
+    savePtoPolicy: async (p, actorName, actor = 'client') => {
+      update((c) => ({ ...c, activity: [event(actor, actorName, 'settings', p.id ? `PTO 규칙 수정: ${p.name}` : `PTO 규칙 추가: ${p.name}`, p.id ? `PTO policy updated: ${p.name}` : `PTO policy added: ${p.name}`), ...c.activity] }))
+      await applyAndReload(() => apiSavePtoPolicy(companyId, p))
+    },
+
+    adjustPto: async (a, actorName, actor = 'client') => {
+      const who = data.employees.find((e) => e.id === a.employeeId)
+      const sign = a.hours > 0 ? '+' : ''
+      update((c) => ({ ...c, activity: [event(actor, actorName, 'employee', `PTO 잔액 조정: ${who ? fullName(who) : ''} ${sign}${a.hours}시간 (${a.reason})`, `PTO adjusted: ${who ? fullName(who) : ''} ${sign}${a.hours}h (${a.reason})`), ...c.activity] }))
+      await applyAndReload(() => addPtoAdjustment(companyId, a))
+    },
+
+    requestPto: async (r, by, actorName) => {
+      const who = data.employees.find((e) => e.id === r.employeeId)
+      if (by !== 'employee') {
+        update((c) => ({ ...c, activity: [event(by, actorName, 'employee', `휴가 등록: ${who ? fullName(who) : ''} ${r.startDate}${r.endDate !== r.startDate ? `~${r.endDate}` : ''} (${r.hours}시간)`, `Time off recorded: ${who ? fullName(who) : ''} ${r.startDate}${r.endDate !== r.startDate ? `–${r.endDate}` : ''} (${r.hours}h)`), ...c.activity] }))
+      }
+      await applyAndReload(() => addPtoRequest(companyId, { ...r, status: by === 'employee' ? 'pending' : 'approved' }))
+    },
+
+    decidePto: async (id, status, actorName, actor = 'client', note) => {
+      const req = data.pto.requests.find((x) => x.id === id)
+      const who = req ? data.employees.find((e) => e.id === req.employeeId) : undefined
+      if (actor !== 'employee' && req) {
+        const ko = { approved: '휴가 승인', denied: '휴가 거절', cancelled: '휴가 취소', pending: '휴가 대기' }[status]
+        const en = { approved: 'Time off approved', denied: 'Time off denied', cancelled: 'Time off cancelled', pending: 'Time off pending' }[status]
+        update((c) => ({ ...c, activity: [event(actor, actorName, 'employee', `${ko}: ${who ? fullName(who) : ''} ${req.startDate} (${req.hours}시간)`, `${en}: ${who ? fullName(who) : ''} ${req.startDate} (${req.hours}h)`), ...c.activity] }))
+      }
+      await applyAndReload(() => setPtoRequestStatus(id, status, note))
     },
 
     sendReminder: (actorName) =>

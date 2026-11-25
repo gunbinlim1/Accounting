@@ -1,4 +1,4 @@
-import { ArrowRight, Banknote, CalendarCog, CalendarDays, CalendarRange, Clock, HandCoins, Landmark, MessageSquareWarning, PiggyBank, Wallet } from 'lucide-react'
+import { ArrowRight, Banknote, CalendarCog, Palmtree, CalendarDays, CalendarRange, Clock, HandCoins, Landmark, MessageSquareWarning, PiggyBank, Wallet } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import BreakdownBar from '../components/BreakdownBar'
@@ -26,6 +26,7 @@ export default function Dashboard() {
   const store = useStore()
   const { company, payDate, view, status, current, deadline, activity, employees, period, openRun, frequency } = store
   const [editingDates, setEditingDates] = useState(false)
+  const ptoPending = store.pto.requests.filter((r) => r.status === 'pending').length
   const checks = useChecks()
   const [now] = useState(() => new Date())
   const pay = parseISODate(payDate)
@@ -58,6 +59,17 @@ export default function Dashboard() {
         <p className="eyebrow">{company.dba} · {formatDate(now, locale, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</p>
         <h1>{t(`${firstName}님, ${hello}`, `${hello}, ${firstName}`)} 👋</h1>
       </header>
+
+      {ptoPending > 0 && (
+        <Link to="/pto" className="pto-notice link-card">
+          <Palmtree size={20} aria-hidden />
+          <div>
+            <strong>{t(`휴가 승인 대기 ${ptoPending}건`, `${ptoPending} time-off request(s) to review`)}</strong>
+            <p>{t('직원이 직원 포털에서 휴가를 신청했어요.', 'Employees asked for time off in their portal.')}</p>
+          </div>
+          <ArrowRight size={18} aria-hidden />
+        </Link>
+      )}
 
       {status === 'changes_requested' && current.note && (
         <Link to="/run" className="firm-note link-card">

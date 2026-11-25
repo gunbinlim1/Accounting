@@ -3,7 +3,7 @@
  * 테이블 구조는 supabase/migrations/20261111000000_payroll_schema.sql
  */
 import type {
-  ActivityEvent, Company, CompanyDoc, CurrentRun, Employee, I9, PaymentRecord, PayrollResult, PayRun, PaySchedule, RunSnapshot, TaxDeposit, TimeEntry, W4,
+  ActivityEvent, Company, CompanyDoc, CurrentRun, Employee, I9, PaymentRecord, PayrollResult, PayRun, PaySchedule, PayType, PtoAdjustment, PtoPolicy, PtoRequest, RunSnapshot, TaxDeposit, TimeEntry, W4,
 } from '../../types'
 
 const num = (v: unknown): number => (v === null || v === undefined || v === '' ? 0 : Number(v))
@@ -214,6 +214,7 @@ export interface TimeRow {
   card_tips: number | string
   rate: number | string | null
   fringes: TimeEntry['fringes'] | null
+  time_off?: Record<string, number | string> | null
 }
 
 export const timeFromRow = (r: TimeRow): TimeEntry => ({
@@ -223,6 +224,7 @@ export const timeFromRow = (r: TimeRow): TimeEntry => ({
   cardTips: num(r.card_tips),
   ...(r.rate !== null && r.rate !== undefined ? { rate: num(r.rate) } : {}),
   ...(r.fringes && r.fringes.length ? { fringes: r.fringes } : {}),
+  ...(r.time_off && Object.keys(r.time_off).length ? { timeOff: Object.fromEntries(Object.entries(r.time_off).map(([k, v]) => [k, num(v)])) } : {}),
 })
 
 export const timeToRow = (companyId: string, payDate: string, employeeId: string, t: TimeEntry): TimeRow => ({
@@ -235,6 +237,7 @@ export const timeToRow = (companyId: string, payDate: string, employeeId: string
   card_tips: t.cardTips,
   rate: t.rate ?? null,
   fringes: t.fringes ?? [],
+  time_off: Object.fromEntries(Object.entries(t.timeOff ?? {}).filter(([, h]) => h > 0)),
 })
 
 // ───────── pay runs
@@ -435,4 +438,39 @@ export const scheduleToRow = (companyId: string, s: Omit<PaySchedule, 'id' | 'is
   first_pay_date: s.firstPayDate,
   overrides: s.overrides,
   active: s.active,
+})
+
+// ───────── PTO
+
+export interface PtoPolicyRow {
+  id: string; company_id: string; name: string; kind: PtoPolicy['kind']; accrual: PtoPolicy['accrual']
+  amount: number | string; per_hours: number | string; max_balance: number | string | null; applies_to: PayType[]; active: boolean
+}
+export const ptoPolicyFromRow = (r: PtoPolicyRow): PtoPolicy => ({
+  id: r.id, name: r.name, kind: r.kind, accrual: r.accrual, amount: num(r.amount), perHours: num(r.per_hours) || 30,
+  maxBalance: r.max_balance === null || r.max_balance === undefined ? null : num(r.max_balance), appliesTo: r.applies_to ?? [], active: r.active,
+})
+export const ptoPolicyToRow = (companyId: string, p: Omit<PtoPolicy, 'id'>) => ({
+  company_id: companyId, name: p.name.trim(), kind: p.kind, accrual: p.accrual, amount: p.amount, per_hours: p.perHours,
+  max_balance: p.maxBalance, applies_to: p.appliesTo, active: p.active,
+})
+
+export interface PtoAdjustmentRow {
+  id: string; company_id: string; employee_id: string; policy_id: string; hours: number | string
+  effective_date: string; reason: string; created_by_name: string; created_at: string
+}
+export const ptoAdjustmentFromRow = (r: PtoAdjustmentRow): PtoAdjustment => ({
+  id: r.id, employeeId: r.employee_id, policyId: r.policy_id, hours: num(r.hours), effectiveDate: r.effective_date,
+  reason: r.reason, createdByName: r.created_by_name, createdAt: r.created_at,
+})
+
+export interface PtoRequestRow {
+  id: string; company_id: string; employee_id: string; policy_id: string; start_date: string; end_date: string; hours: number | string
+  note: string; status: PtoRequest['status']; requested_by: PtoRequest['requestedBy']; decided_by_name: string | null
+  decided_at: string | null; decision_note: string | null; created_at: string
+}
+export const ptoRequestFromRow = (r: PtoRequestRow): PtoRequest => ({
+  id: r.id, employeeId: r.employee_id, policyId: r.policy_id, startDate: r.start_date, endDate: r.end_date, hours: num(r.hours),
+  note: r.note, status: r.status, requestedBy: r.requested_by, decidedByName: r.decided_by_name ?? undefined,
+  decidedAt: r.decided_at ?? undefined, decisionNote: r.decision_note ?? undefined, createdAt: r.created_at,
 })

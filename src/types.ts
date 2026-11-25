@@ -162,6 +162,8 @@ export interface TimeEntry {
   rate?: number
   /** 이번 회차 Fringe Benefit */
   fringes?: FringeEntry[]
+  /** 이번 회차 사용한 유급 휴가 시간 {PTO 정책 ID: 시간} */
+  timeOff?: Record<string, number>
 }
 
 export interface YtdTotals {
@@ -190,6 +192,9 @@ export interface PayrollResult {
   overtimePay: number
   /** 팁 포함 시급이 최저임금 미달 시 고용주가 보전한 금액 */
   tipMakeUp: number
+  /** 유급 휴가(PTO) 시간·지급액 (예전 결과에는 없음) */
+  timeOffHours?: number
+  timeOffPay?: number
   cashTips: number
   cardTips: number
   /** 과세 총급여 = 위 항목 합계 */
@@ -378,6 +383,59 @@ export interface PaySchedule {
   createdAt?: string
 }
 
+/** PTO(유급 휴가) 규칙 */
+export interface PtoPolicy {
+  id: string
+  name: string
+  kind: 'pto' | 'sick' | 'vacation' | 'other'
+  /** per_hour: 근무 perHours시간당 amount시간 / per_period: 회차마다 amount / annual: 매년 amount / none: 적립 없음 */
+  accrual: 'per_hour' | 'per_period' | 'annual' | 'none'
+  amount: number
+  perHours: number
+  /** 최대 잔액 (없으면 null) */
+  maxBalance: number | null
+  /** 적용 급여 형태 */
+  appliesTo: PayType[]
+  active: boolean
+}
+
+/** 잔액 조정 (시작 잔액·수동 조정) — 수정·삭제 불가 기록 */
+export interface PtoAdjustment {
+  id: string
+  employeeId: string
+  policyId: string
+  hours: number
+  effectiveDate: string
+  reason: string
+  createdByName: string
+  createdAt: string
+}
+
+export type PtoRequestStatus = 'pending' | 'approved' | 'denied' | 'cancelled'
+
+/** 휴가 신청·기록 */
+export interface PtoRequest {
+  id: string
+  employeeId: string
+  policyId: string
+  startDate: string
+  endDate: string
+  hours: number
+  note: string
+  status: PtoRequestStatus
+  requestedBy: 'employee' | 'client' | 'firm'
+  decidedByName?: string
+  decidedAt?: string
+  decisionNote?: string
+  createdAt: string
+}
+
+export interface CompanyPto {
+  policies: PtoPolicy[]
+  adjustments: PtoAdjustment[]
+  requests: PtoRequest[]
+}
+
 export interface CompanyData {
   company: Company
   employees: Employee[]
@@ -391,6 +449,7 @@ export interface CompanyData {
   open: Record<string, CurrentRun>
   activity: ActivityEvent[]
   deposits: TaxDeposit[]
+  pto: CompanyPto
 }
 
 export type Session =

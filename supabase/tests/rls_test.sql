@@ -296,6 +296,50 @@ set role authenticated;
 delete from public.filings;
 reset role;
 
+-- ── PTO: 정책·조정·신청
+select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
+set role authenticated;
+insert into public.pto_policies (id, company_id, name, accrual, amount, per_hours, max_balance) values ('00000000-0000-0000-0000-0000000000c1', (select ca from ids limit 1), 'PTO', 'per_hour', 1, 30, 80);
+select test.ok((select count(*) = 1 from public.pto_policies), 'client adds a PTO policy');
+insert into public.pto_adjustments (company_id, employee_id, policy_id, hours, reason) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', 16, 'opening balance');
+select test.ok((select created_by = auth.uid() and created_by_name <> '' from public.pto_adjustments), 'adjustment author set by the server');
+select test.denied($$update public.pto_adjustments set hours = 99$$, 'adjustments cannot be edited');
+select test.denied($$delete from public.pto_adjustments$$, 'adjustments cannot be deleted');
+insert into public.pto_requests (company_id, employee_id, policy_id, start_date, end_date, hours, status) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-0000000000c1', '2026-12-21', '2026-12-22', 16, 'approved');
+select test.ok((select requested_by = 'client' and decided_at is not null from public.pto_requests), 'client records approved leave');
+update public.time_entries set time_off = '{"00000000-0000-0000-0000-0000000000c1": 8}' where employee_id = '00000000-0000-0000-0000-0000000000e1' and regular = 40;
+select test.ok((select (time_off ->> '00000000-0000-0000-0000-0000000000c1')::numeric = 8 from public.time_entries where employee_id = '00000000-0000-0000-0000-0000000000e1' and regular = 40), 'PTO hours saved on the time entry');
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000b', 'owner-b@b.example');
+set role authenticated;
+select test.ok((select count(*) = 0 from public.pto_policies) and (select count(*) = 0 from public.pto_requests) and (select count(*) = 0 from public.pto_adjustments), 'B sees none of A''s PTO');
+select test.denied($$insert into public.pto_adjustments (company_id, employee_id, policy_id, hours) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', 40)$$, 'B cannot adjust A''s balances');
+reset role;
+-- 직원 E (Maria): 본인 것만, 신청은 대기로만
+select test.login('00000000-0000-0000-0000-00000000000e', 'emp@mail.example');
+set role authenticated;
+select test.ok((select count(*) = 1 from public.pto_policies), 'employee reads the PTO policy');
+select test.ok((select count(*) = 1 from public.pto_adjustments), 'employee sees own adjustments');
+select test.ok((select count(*) = 0 from public.pto_requests), 'employee does not see coworkers'' leave');
+insert into public.pto_requests (company_id, employee_id, policy_id, start_date, end_date, hours, status) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', '2027-01-04', '2027-01-04', 8, 'approved');
+select test.ok((select status = 'pending' and requested_by = 'employee' from public.pto_requests), 'employee request always starts pending');
+select test.denied($$update public.pto_requests set status = 'approved'$$, 'employee cannot approve');
+select test.denied($$update public.pto_requests set hours = 40$$, 'employee cannot change a request');
+select test.denied($$insert into public.pto_requests (company_id, employee_id, policy_id, start_date, end_date, hours) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-0000000000c1', '2027-01-04', '2027-01-04', 8)$$, 'employee cannot request for a coworker');
+select test.denied($$insert into public.pto_adjustments (company_id, employee_id, policy_id, hours) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', 40)$$, 'employee cannot adjust own balance');
+update public.pto_requests set status = 'cancelled';
+select test.ok((select status = 'cancelled' from public.pto_requests), 'employee cancels own pending request');
+insert into public.pto_requests (company_id, employee_id, policy_id, start_date, end_date, hours) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', '2027-01-11', '2027-01-11', 8);
+reset role;
+select test.login('00000000-0000-0000-0000-00000000000a', 'owner-a@a.example');
+set role authenticated;
+update public.pto_requests set status = 'approved' where start_date = '2027-01-11';
+select test.ok((select status = 'approved' and decided_at is not null and decided_by_name <> '' from public.pto_requests where start_date = '2027-01-11'), 'client approves an employee request');
+select test.denied($$update public.pto_requests set status = 'pending' where start_date = '2027-01-11'$$, 'approved cannot go back to pending');
+select test.denied($$delete from public.pto_requests$$, 'requests cannot be deleted');
+select test.denied($$insert into public.pto_requests (company_id, employee_id, policy_id, start_date, end_date, hours) values ((select ca from ids limit 1), '00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c1', '2027-02-01', '2027-01-01', 8)$$, 'end date before start rejected');
+reset role;
+
 -- ── 회계법인이 고객 삭제
 select test.login('00000000-0000-0000-0000-00000000000f', 'payroll@firm.example');
 set role authenticated;

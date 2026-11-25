@@ -21,6 +21,7 @@ import { CompanyProvider, useStore } from '../store'
 import History from './History'
 import Taxes from './Taxes'
 import Schedules from './Schedules'
+import Pto from './Pto'
 
 function Review() {
   const { t, locale } = usePrefs()
@@ -162,7 +163,7 @@ function FirmChat({ companyId, dba }: { companyId: string; dba: string }) {
 }
 
 /** 회계법인: 고객사 화면 (이번 회차 검토 / 세금·신고 / 급여 내역 / 채팅) */
-export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes' | 'history' | 'chat' | 'schedules' }) {
+export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes' | 'history' | 'chat' | 'schedules' | 'pto' }) {
   const { t } = usePrefs()
   const { companyId } = useParams()
   const [params] = useSearchParams()
@@ -179,6 +180,7 @@ export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes
         <NavLink to={`${base}/taxes`}>{t('세금·신고', 'Taxes & filings')}</NavLink>
         <NavLink to={`${base}/history`}>{t('급여 내역', 'History')}</NavLink>
         <NavLink to={`${base}/schedules`}>{t('급여 스케줄', 'Pay schedules')}</NavLink>
+        <NavLink to={`${base}/pto`}>{t('휴가', 'PTO')}</NavLink>
         <NavLink to={`${base}/chat`}>{t('채팅', 'Chat')}</NavLink>
         <button
           type="button"
@@ -192,7 +194,7 @@ export default function FirmReview({ tab = 'review' }: { tab?: 'review' | 'taxes
           <Trash2 size={15} aria-hidden /> {t('고객사 삭제', 'Delete client')}
         </button>
       </nav>
-      {tab === 'review' ? <Review /> : tab === 'taxes' ? <Taxes /> : tab === 'chat' ? <FirmChat companyId={data.company.id} dba={data.company.dba} /> : tab === 'schedules' ? <Schedules backTo={base} /> : <History />}
+      {tab === 'review' ? <Review /> : tab === 'taxes' ? <Taxes /> : tab === 'chat' ? <FirmChat companyId={data.company.id} dba={data.company.dba} /> : tab === 'schedules' ? <Schedules backTo={base} /> : tab === 'pto' ? <Pto /> : <History />}
     </CompanyProvider>
   )
 }

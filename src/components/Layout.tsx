@@ -1,5 +1,5 @@
 import {
-  Building2, CirclePlay, History, Inbox, Landmark, Languages, LayoutDashboard, LogOut, Moon, Plug, Search, SlidersHorizontal, Sun, UserPlus, Users,
+  Building2, CirclePlay, History, Inbox, Landmark, Languages, LayoutDashboard, LogOut, Moon, Palmtree, Plug, Search, SlidersHorizontal, Sun, UserPlus, Users,
 } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom'
@@ -142,6 +142,7 @@ function ClientShell() {
     { to: '/run', label: t('급여 실행', 'Run payroll'), icon: <CirclePlay size={20} /> },
     { to: '/employees', label: t('직원', 'People'), icon: <Users size={20} /> },
     { to: '/history', label: t('급여 내역', 'History'), icon: <History size={20} /> },
+    { to: '/pto', label: t('휴가 (PTO)', 'Time off'), icon: <Palmtree size={20} />, mobile: false },
     { to: '/taxes', label: t('세금·신고', 'Taxes'), icon: <Landmark size={20} /> },
     { to: '/company', label: t('회사 정보', 'Company'), icon: <Building2 size={20} />, mobile: false },
     { to: '/simulator', label: t('시뮬레이터', 'What-if'), icon: <SlidersHorizontal size={20} />, mobile: false },

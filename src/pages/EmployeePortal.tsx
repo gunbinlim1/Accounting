@@ -1,6 +1,9 @@
-import { ChevronRight, Download, FileCheck2, FileText, Landmark, Languages, LogOut, MailCheck, ShieldCheck } from 'lucide-react'
+import { CalendarPlus, ChevronRight, Download, FileCheck2, Palmtree, FileText, Landmark, Languages, LogOut, MailCheck, ShieldCheck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { downloadFiling, listFilings, type Filing } from '../lib/filings'
+import { accrualText, defaultRequestHours, policyAppliesTo, ptoLedger } from '../lib/pto'
+import { parseISODate } from '../lib/schedule'
+import type { Employee, PtoRequest } from '../types'
 import { Navigate } from 'react-router-dom'
 import { payMethodLabel } from '../components/PaymentsTable'
 import PayStub from '../components/PayStub'
@@ -17,13 +20,14 @@ import { fullName } from '../lib/names'
 function Portal({ employeeId }: { employeeId: string }) {
   const { t, locale, lang, toggleLang } = usePrefs()
   const { logout } = usePortal()
-  const { company, runs, employees, upsertEmployee } = useStore()
+  const { company, runs, employees, upsertEmployee, pto } = useStore()
   const me = employees.find((e) => e.id === employeeId)
-  const [tab, setTab] = useState<'stubs' | 'w2' | 'profile'>('stubs')
+  const [tab, setTab] = useState<'stubs' | 'w2' | 'pto' | 'profile'>('stubs')
   const myRuns = runs.filter((r) => r.results.some((x) => x.employeeId === employeeId)).sort((a, b) => b.payDate.localeCompare(a.payDate))
   const [openRun, setOpenRun] = useState<string | null>(myRuns[0]?.id ?? null)
   const [nowIso] = useState(() => new Date().toISOString())
   if (!me) return null
+  const hasPto = pto.policies.some((p) => policyAppliesTo(p, me))
   const year = Number((myRuns[0]?.payDate ?? nowIso).slice(0, 4))
   const ytdNet = myRuns.filter((r) => r.payDate.startsWith(String(year))).reduce((a, r) => a + (r.results.find((x) => x.employeeId === employeeId)?.netPay ?? 0), 0)
 
@@ -63,6 +67,7 @@ function Portal({ employeeId }: { employeeId: string }) {
         <div className="segmented tabs-row">
           <button className={tab === 'stubs' ? 'on' : ''} onClick={() => setTab('stubs')}>{t('급여명세서', 'Pay stubs')}</button>
           <button className={tab === 'w2' ? 'on' : ''} onClick={() => setTab('w2')}>W-2</button>
+          {hasPto && <button className={tab === 'pto' ? 'on' : ''} onClick={() => setTab('pto')}>{t('휴가', 'Time off')}</button>}
           <button className={tab === 'profile' ? 'on' : ''} onClick={() => setTab('profile')}>{t('내 정보', 'My info')}</button>
         </div>
 
@@ -109,6 +114,8 @@ function Portal({ employeeId }: { employeeId: string }) {
             <section className="card empty">{t('W-2를 포털에서 보려면 전자 수령에 동의해 주세요. 동의하지 않으면 우편으로 받습니다.', 'Consent to electronic delivery to view your W-2 here. Otherwise it will be mailed.')}</section>
           )
         )}
+
+        {tab === 'pto' && hasPto && <MyTimeOff employee={me} />}
 
         {tab === 'profile' && (
           <section className="card mini-facts">
@@ -177,5 +184,98 @@ function MyW2Files({ companyId, employeeId }: { companyId: string; employeeId: s
         </ul>
       )}
     </section>
+  )
+}
+
+/** 직원: 내 휴가 잔액 · 신청 · 신청 내역 */
+function MyTimeOff({ employee: me }: { employee: Employee }) {
+  const { t, locale } = usePrefs()
+  const store = useStore()
+  const { pto, runs, time } = store
+  const [now] = useState(() => new Date())
+  const policies = pto.policies.filter((p) => policyAppliesTo(p, me))
+  const [form, setForm] = useState({ policyId: policies[0]?.id ?? '', startDate: '', endDate: '', hours: 0, note: '' })
+  const [touched, setTouched] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const end = form.endDate || form.startDate
+  const hours = touched ? form.hours : defaultRequestHours(form.startDate, end)
+  const mine = pto.requests.filter((r) => r.employeeId === me.id).sort((a, b) => b.startDate.localeCompare(a.startDate))
+  const d = (iso: string) => formatDate(parseISODate(iso), locale, { month: 'short', day: 'numeric', weekday: 'short' })
+  const statusText: Record<PtoRequest['status'], string> = { pending: t('승인 대기', 'Pending'), approved: t('승인됨', 'Approved'), denied: t('거절됨', 'Denied'), cancelled: t('취소됨', 'Cancelled') }
+
+  const submit = async () => {
+    if (!form.policyId || !form.startDate || hours <= 0) return
+    setSaving(true)
+    setMsg(null)
+    try {
+      await store.requestPto({ employeeId: me.id, policyId: form.policyId, startDate: form.startDate, endDate: end, hours, note: form.note }, 'employee', fullName(me))
+      setForm({ ...form, startDate: '', endDate: '', note: '' })
+      setTouched(false)
+      setMsg({ ok: true, text: t('신청했어요. 회사가 승인하면 여기에서 확인할 수 있어요.', 'Requested. You’ll see it here once your employer decides.') })
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="my-pto">
+      <div className="my-pto-balances">
+        {policies.map((p) => {
+          const b = ptoLedger(me, p, runs, pto.adjustments, now)
+          const use = time[me.id]?.timeOff?.[p.id] ?? 0
+          const pending = mine.filter((r) => r.policyId === p.id && r.status === 'pending').reduce((a, r) => a + r.hours, 0)
+          return (
+            <section key={p.id} className="card my-pto-card">
+              <span className="dc-label"><Palmtree size={14} aria-hidden /> {p.name}</span>
+              <strong className="my-pto-hours">{Math.round((b.balance - use) * 100) / 100}<small>{t('시간', 'h')}</small></strong>
+              <small className="muted">{t('사용 가능', 'available')}{use > 0 ? t(` · 이번 급여에서 ${use}시간 사용`, ` · ${use}h on this paycheck`) : ''}{pending > 0 ? t(` · 승인 대기 ${pending}시간`, ` · ${pending}h pending`) : ''}</small>
+              <small className="muted">{accrualText(p, t)}</small>
+            </section>
+          )
+        })}
+      </div>
+
+      <section className="card pto-form">
+        <h3><CalendarPlus size={18} aria-hidden /> {t('휴가 신청', 'Request time off')}</h3>
+        <div className="form-grid">
+          {policies.length > 1 && (
+            <label className="field"><span>{t('휴가 종류', 'Type')}</span>
+              <select value={form.policyId} onChange={(e) => setForm({ ...form, policyId: e.target.value })}>
+                {policies.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="field"><span>{t('시작일', 'From')}</span><input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>
+          <label className="field"><span>{t('종료일', 'To')}</span><input type="date" value={end} min={form.startDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></label>
+          <label className="field"><span>{t('시간 (평일 × 8시간 자동)', 'Hours (weekdays × 8)')}</span><input type="number" min={0.25} step={0.25} value={hours || ''} onChange={(e) => { setTouched(true); setForm({ ...form, hours: Math.max(0, Number(e.target.value) || 0) }) }} /></label>
+          <label className="field"><span>{t('메모 (선택)', 'Note (optional)')}</span><input value={form.note} maxLength={300} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={t('예: 가족 여행', 'e.g. Family trip')} /></label>
+        </div>
+        {msg && <p className={msg.ok ? 'ok-text small' : 'de-error'} role="status">{msg.text}</p>}
+        <div><button type="button" className="btn primary" disabled={saving || !form.startDate || hours <= 0 || end < form.startDate} onClick={() => void submit()}>{saving ? t('보내는 중…', 'Sending…') : t('신청하기', 'Send request')}</button></div>
+      </section>
+
+      <section className="card">
+        <h3>{t('내 신청 내역', 'My requests')}</h3>
+        {mine.length === 0 ? <p className="muted small">{t('아직 신청한 휴가가 없어요.', 'No requests yet.')}</p> : (
+          <ul className="pto-req-list">
+            {mine.map((r) => (
+              <li key={r.id}>
+                <span className="pto-req-main">
+                  <strong>{r.startDate === r.endDate ? d(r.startDate) : `${d(r.startDate)} – ${d(r.endDate)}`} · {r.hours}h</strong>
+                  <small className="muted">{pto.policies.find((p) => p.id === r.policyId)?.name}{r.note ? ` · “${r.note}”` : ''}{r.decisionNote ? ` · ${r.decisionNote}` : ''}</small>
+                </span>
+                <span className="row gap">
+                  <span className={`pto-status ${r.status}`}>{statusText[r.status]}</span>
+                  {r.status === 'pending' && <button type="button" className="btn sm ghost" onClick={() => void store.decidePto(r.id, 'cancelled', fullName(me), 'employee')}>{t('취소', 'Cancel')}</button>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   )
 }

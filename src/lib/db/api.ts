@@ -1,14 +1,15 @@
 /**
  * Supabase 읽기·쓰기. 모든 권한 판단은 DB의 RLS가 하고, 여기서는 요청만 보냄.
  */
-import type { CompanyData, PaySchedule, Session } from '../../types'
+import type { CompanyData, PaySchedule, PtoPolicy, PtoRequestStatus, Session } from '../../types'
 import { normalizeCompany } from '../companyData'
 import { openDateOf, openRuns } from '../paySchedules'
 import { toISODate } from '../schedule'
 import { DOCS_BUCKET, db } from '../supabase'
 import {
-  activityFromRow, companyFromRow, currentFromRow, depositFromRow, employeeFromRow, runsFromRows, scheduleFromRow, scheduleToRow, timeFromRow,
-  type ActivityRow, type CompanyRow, type DepositRow, type EmployeeRow, type PaymentRow, type ResultRow, type RunRow, type ScheduleRow, type TimeRow,
+  activityFromRow, companyFromRow, currentFromRow, depositFromRow, employeeFromRow, ptoAdjustmentFromRow, ptoPolicyFromRow, ptoPolicyToRow, ptoRequestFromRow,
+  runsFromRows, scheduleFromRow, scheduleToRow, timeFromRow,
+  type PtoAdjustmentRow, type PtoPolicyRow, type PtoRequestRow, type ActivityRow, type CompanyRow, type DepositRow, type EmployeeRow, type PaymentRow, type ResultRow, type RunRow, type ScheduleRow, type TimeRow,
 } from './mappers'
 import type { Write } from './plan'
 
@@ -46,7 +47,7 @@ export async function resolveSession(): Promise<Session | null> {
 export async function loadCompanies(today: Date): Promise<CompanyData[]> {
   const client = db()
   const from = toISODate(today)
-  const [companies, employees, schedules, time, runs, results, payments, deposits, activity] = await Promise.all([
+  const [companies, employees, schedules, time, runs, results, payments, deposits, activity, ptoPolicies, ptoAdjustments, ptoRequests] = await Promise.all([
     client.from('companies').select('*').order('dba'),
     client.from('employees').select('*').order('last_name'),
     client.from('pay_schedules').select('*').order('created_at'),
@@ -56,6 +57,9 @@ export async function loadCompanies(today: Date): Promise<CompanyData[]> {
     client.from('payments').select('*'),
     client.from('tax_deposits').select('*').order('due_date'),
     client.from('activity').select('*').order('at', { ascending: false }).limit(2000),
+    client.from('pto_policies').select('*').order('created_at'),
+    client.from('pto_adjustments').select('*').order('effective_date'),
+    client.from('pto_requests').select('*').order('start_date', { ascending: false }).limit(3000),
   ])
   const C = must(companies) as CompanyRow[]
   const E = must(employees) as EmployeeRow[]
@@ -66,6 +70,10 @@ export async function loadCompanies(today: Date): Promise<CompanyData[]> {
   const P = must(payments) as PaymentRow[]
   const D = must(deposits) as DepositRow[]
   const A = must(activity) as ActivityRow[]
+  // PTO 표가 아직 없으면(마이그레이션 전) 빈 목록으로
+  const PP = (ptoPolicies.error ? [] : ptoPolicies.data ?? []) as PtoPolicyRow[]
+  const PA = (ptoAdjustments.error ? [] : ptoAdjustments.data ?? []) as PtoAdjustmentRow[]
+  const PR = (ptoRequests.error ? [] : ptoRequests.data ?? []) as PtoRequestRow[]
 
   return C.map((c) => {
     const byCo = <X extends { company_id: string }>(xs: X[]) => xs.filter((x) => x.company_id === c.id)
@@ -99,8 +107,33 @@ export async function loadCompanies(today: Date): Promise<CompanyData[]> {
       open,
       deposits: byCo(D).map(depositFromRow),
       activity: byCo(A).map(activityFromRow),
+      pto: { policies: byCo(PP).map(ptoPolicyFromRow), adjustments: byCo(PA).map(ptoAdjustmentFromRow), requests: byCo(PR).map(ptoRequestFromRow) },
     }, today)
   })
+}
+
+// ───────── PTO
+
+export async function savePtoPolicy(companyId: string, p: Omit<PtoPolicy, 'id'> & { id?: string }): Promise<void> {
+  const { id, ...rest } = p
+  const row = ptoPolicyToRow(companyId, rest)
+  must(id ? await db().from('pto_policies').update(row).eq('id', id) : await db().from('pto_policies').insert(row))
+}
+
+export async function addPtoAdjustment(companyId: string, a: { employeeId: string; policyId: string; hours: number; effectiveDate: string; reason: string }): Promise<void> {
+  must(await db().from('pto_adjustments').insert({
+    company_id: companyId, employee_id: a.employeeId, policy_id: a.policyId, hours: a.hours, effective_date: a.effectiveDate, reason: a.reason.trim(),
+  }))
+}
+
+export async function addPtoRequest(companyId: string, r: { employeeId: string; policyId: string; startDate: string; endDate: string; hours: number; note: string; status: 'pending' | 'approved' }): Promise<void> {
+  must(await db().from('pto_requests').insert({
+    company_id: companyId, employee_id: r.employeeId, policy_id: r.policyId, start_date: r.startDate, end_date: r.endDate, hours: r.hours, note: r.note.trim(), status: r.status,
+  }))
+}
+
+export async function setPtoRequestStatus(id: string, status: PtoRequestStatus, decisionNote?: string): Promise<void> {
+  must(await db().from('pto_requests').update({ status, ...(decisionNote !== undefined ? { decision_note: decisionNote.trim() || null } : {}) }).eq('id', id))
 }
 
 // ───────── 급여 스케줄

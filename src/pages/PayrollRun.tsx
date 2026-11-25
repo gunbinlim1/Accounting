@@ -1,8 +1,9 @@
 import {
-  ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, Clock, FileSpreadsheet, Info, Lock, MessageSquareWarning, OctagonAlert, Printer, RotateCcw, Search, Send, TriangleAlert, Undo2,
+  ArrowLeft, ArrowRight, CalendarDays, Check, ChevronDown, Clock, FileSpreadsheet, Info, Lock, MessageSquareWarning, OctagonAlert, Palmtree, Printer, RotateCcw, Search, Send, TriangleAlert, Undo2,
 } from 'lucide-react'
 import { Fragment, useMemo, useState, type KeyboardEvent } from 'react'
 import CheckList from '../components/CheckList'
+import { approvedHoursInPeriod, policyAppliesTo, ptoLedger } from '../lib/pto'
 import FringeEditor from '../components/FringeEditor'
 import ImportDialog from '../components/ImportDialog'
 import PaymentsTable from '../components/PaymentsTable'
@@ -114,7 +115,7 @@ export default function PayrollRun() {
   const { t, lang, locale } = usePrefs()
   const { session } = usePortal()
   const store = useStore()
-  const { employees, runEmployees, time, setTime, results, payDate, lastRun, upsertEmployee, status, locked, current, deadline, view, company, period, openRun } = store
+  const { employees, runEmployees, time, setTime, results, payDate, lastRun, upsertEmployee, status, locked, current, deadline, view, company, period, openRun, pto, runs } = store
   const checks = useChecks()
   const [step, setStep] = useState<1 | 2>(1)
   const [query, setQuery] = useState('')
@@ -138,6 +139,30 @@ export default function PayrollRun() {
   const saveRateAsDefault = (e: Employee) => {
     upsertEmployee({ ...e, rate: eff(e).rate }, me)
     setTime(e.id, { rate: undefined })
+  }
+
+  // ── PTO: 이 회차 직원에게 적용되는 규칙, 잔액, 이 급여 기간의 승인된 휴가
+  const ptoPolicies = pto.policies.filter((p) => p.active)
+  const ptoOn = ptoPolicies.length > 0
+  const ptoFor = (e: Employee) => ptoPolicies.filter((p) => policyAppliesTo(p, e))
+  const ptoBalance = (e: Employee, policyId: string) => {
+    const p = ptoPolicies.find((x) => x.id === policyId)
+    return p ? ptoLedger(e, p, runs, pto.adjustments, now).balance : 0
+  }
+  const approvedFor = (e: Employee, policyId: string) => approvedHoursInPeriod(pto.requests, e.id, policyId, period.start, period.end)
+  const approvedPending = ptoOn && active.some((e) => ptoFor(e).some((p) => approvedFor(e, p.id) !== (time[e.id]?.timeOff?.[p.id] ?? 0) && approvedFor(e, p.id) > 0))
+  const applyApprovedLeave = () => {
+    for (const e of active) {
+      const policies = ptoFor(e)
+      if (!policies.length) continue
+      const next = { ...(time[e.id]?.timeOff ?? {}) }
+      let changed = false
+      for (const p of policies) {
+        const h = approvedFor(e, p.id)
+        if (h > 0 && next[p.id] !== h) { next[p.id] = h; changed = true }
+      }
+      if (changed) setTime(e.id, { timeOff: next })
+    }
   }
 
   const checksByEmployee = useMemo(() => {
@@ -296,7 +321,8 @@ export default function PayrollRun() {
                 <FileSpreadsheet size={15} aria-hidden /> {t('엑셀·CSV 가져오기', 'Import Excel/CSV')}
               </button>
               <span className="muted small">{t('모두 적용:', 'Apply to all:')}</span>
-              {lastRun && <button className="chip" onClick={() => applyAll((e) => lastRun.time[e.id])}>{t('지난번과 동일', 'Same as last')}</button>}
+              {approvedPending && <button className="chip on" onClick={applyApprovedLeave}><Palmtree size={13} aria-hidden /> {t('승인된 휴가 반영', 'Fill approved time off')}</button>}
+              {lastRun && <button className="chip" onClick={() => applyAll((e) => lastRun.time[e.id] && { ...lastRun.time[e.id], timeOff: time[e.id]?.timeOff })}>{t('지난번과 동일', 'Same as last')}</button>}
               <button className="chip" onClick={() => applyAll((e) => defaultTimeFor(e.role, tipsOn))}>{t('직무 기본값', 'Role defaults')}</button>
               <button className="chip" onClick={() => applyAll(() => ({ regular: 0, overtime: 0, cashTips: 0, cardTips: 0 }))}>
                 <RotateCcw size={13} aria-hidden /> {t('비우기', 'Clear')}
@@ -312,6 +338,7 @@ export default function PayrollRun() {
                   <th className="num">{t('시급 / 회당 급여', 'Rate / per check')}</th>
                   <th className="num">{t('정규 시간', 'Regular hrs')}</th>
                   <th className="num">{t('OT 시간', 'OT hrs')}</th>
+                  {ptoOn && <th className="num">{t('휴가(PTO) 시간', 'PTO hrs')}</th>}
                   {tipsOn && <th className="num">{t('현금 팁', 'Cash tips')}</th>}
                   {tipsOn && <th className="num">{t('카드 팁', 'Card tips')}</th>}
                   <th className="num">Fringe</th>
@@ -351,6 +378,25 @@ export default function PayrollRun() {
                         <td className="num" data-label={t('OT 시간', 'OT hrs')}>
                           <CellInput row={ri} col={1} disabled={salary} label={`${fullName(e)} OT`} value={h.overtime} onChange={(v) => setTime(e.id, { overtime: v })} />
                         </td>
+                        {ptoOn && <td className="num pto-cell" data-label={t('휴가(PTO) 시간', 'PTO hrs')}>
+                          {ptoFor(e).length === 0 ? <span className="cell-empty">—</span> : ptoFor(e).map((p) => {
+                            const used = h.timeOff?.[p.id] ?? 0
+                            const approved = approvedFor(e, p.id)
+                            const left = ptoBalance(e, p.id)
+                            return (
+                              <div key={p.id} className="pto-in">
+                                {ptoFor(e).length > 1 && <small className="pto-name">{p.name}</small>}
+                                <CellInput row={rows.indexOf(e)} col={`pto-${p.id}`} label={`${fullName(e)} ${p.name}`} value={used} onChange={(v) => setTime(e.id, { timeOff: { ...(h.timeOff ?? {}), [p.id]: v } })} />
+                                <small className={`pto-left${used > left ? ' over' : ''}`}>
+                                  {t(`잔액 ${left}h`, `${left}h left`)}
+                                  {approved > 0 && approved !== used && (
+                                    <button type="button" className="link-btn" onClick={() => setTime(e.id, { timeOff: { ...(h.timeOff ?? {}), [p.id]: approved } })}>{t(`승인 ${approved}h 넣기`, `Use approved ${approved}h`)}</button>
+                                  )}
+                                </small>
+                              </div>
+                            )
+                          })}
+                        </td>}
                         {tipsOn && <td className="num" data-label={t('현금 팁', 'Cash tips')}>
                           <CellInput row={ri} col={2} money disabled={!tips} label={`${fullName(e)} ${t('현금 팁', 'cash tips')}`} value={h.cashTips} onChange={(v) => setTime(e.id, { cashTips: v })} />
                         </td>}
@@ -374,7 +420,7 @@ export default function PayrollRun() {
                       </tr>
                       {isOpen && (
                         <tr className="detail-row">
-                          <td colSpan={tipsOn ? 9 : 7}>
+                          <td colSpan={(tipsOn ? 9 : 7) + (ptoOn ? 1 : 0)}>
                             <div className="row-detail">
                               <div className="row-detail-facts">
                                 {r.hours > 0 && (
@@ -409,6 +455,7 @@ export default function PayrollRun() {
                   <td />
                   <td className="num">{active.reduce((a, e) => a + (time[e.id]?.regular ?? 0) * Number(e.payType !== 'salary'), 0)}</td>
                   <td className="num">{active.reduce((a, e) => a + (time[e.id]?.overtime ?? 0) * Number(e.payType !== 'salary'), 0)}</td>
+                  {ptoOn && <td className="num">{active.reduce((a, e) => a + Object.values(time[e.id]?.timeOff ?? {}).reduce((x, h) => x + h, 0), 0)}</td>}
                   {tipsOn && <td className="num">{formatCurrency(totals.cashTips)}</td>}
                   {tipsOn && <td className="num">{formatCurrency(totals.cardTips)}</td>}
                   <td className="num">{formatCurrency(totals.fringe)}</td>

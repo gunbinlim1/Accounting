@@ -90,7 +90,13 @@ export function calculatePayroll({ employee: e, payFrequency, time = {}, ytd = {
   overtimePay = roundCents(overtimePay)
   tipMakeUp = roundCents(tipMakeUp)
 
-  const grossPay = roundCents(regularPay + overtimePay + tipMakeUp + tips)
+  // ── 유급 휴가(PTO): 일하지 않은 시간이라 초과근무·팁 크레딧과 무관.
+  // 시급 직원은 시급, 팁 직원은 최저임금($7.25 — 팁 크레딧은 근무 시간에만 적용), 연봉 직원은 연봉에 포함(추가 지급 없음)
+  const timeOffHours = Object.values(time.timeOff ?? {}).reduce((a, h) => a + pos(h), 0)
+  const timeOffRate = e.payType === 'salary' ? 0 : e.payType === 'tipped' ? Math.max(cfg.minimumWage, e.rate) : e.rate
+  const timeOffPay = roundCents(timeOffHours * timeOffRate)
+
+  const grossPay = roundCents(regularPay + overtimePay + tipMakeUp + timeOffPay + tips)
   const paycheckWages = grossPay - cashTips
 
   // ── Fringe Benefit (현금 지급 아님 — 과세 임금에만 더함)
@@ -129,7 +135,7 @@ export function calculatePayroll({ employee: e, payFrequency, time = {}, ytd = {
   const futa = roundCents(underBase(futaWages, pos(ytd.futaWages), cfg.futaWageBase) * cfg.futaRate)
   const suta = roundCents(underBase(futaWages, pos(ytd.sutaWages), cfg.sutaWageBase) * sutaRate)
   const employerTaxes = roundCents(employerSocialSecurity + employerMedicare + futa + suta)
-  const employerCost = roundCents(regularPay + overtimePay + tipMakeUp + employerTaxes)
+  const employerCost = roundCents(regularPay + overtimePay + tipMakeUp + timeOffPay + employerTaxes)
 
   // Section 45B: 시간당 $5.15를 채우는 데 쓰인 팁을 제외한 팁에 대한 고용주 FICA
   const usedForMinimum = Math.max(0, cfg.section45BWage * hours - (regularPay + overtimePay + tipMakeUp))
@@ -142,6 +148,8 @@ export function calculatePayroll({ employee: e, payFrequency, time = {}, ytd = {
     regularPay,
     overtimePay,
     tipMakeUp,
+    timeOffHours,
+    timeOffPay,
     cashTips,
     cardTips,
     grossPay,
@@ -200,7 +208,7 @@ export function sumResults(results: PayrollResult[]): PayrollTotals {
   const employerFica = s((r) => r.employerSocialSecurity + r.employerMedicare)
   return {
     gross: s((r) => r.grossPay),
-    wages: s((r) => r.regularPay + r.overtimePay + r.tipMakeUp),
+    wages: s((r) => r.regularPay + r.overtimePay + r.tipMakeUp + (r.timeOffPay ?? 0)),
     net: s((r) => r.netPay),
     cashTips: s((r) => r.cashTips),
     cardTips: s((r) => r.cardTips),

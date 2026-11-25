@@ -24,6 +24,8 @@ interface Line {
   label: string
   value: number
   note?: string
+  /** 금액이 0이어도 보여 줌 (예: 연봉 직원의 PTO) */
+  always?: boolean
 }
 
 /** 각 항목을 쉬운 말로 설명하는 급여명세서 */
@@ -68,6 +70,20 @@ export default function PayStub({ employee: e, result: r, time, payDate, periodS
           { label: t('카드 팁', 'Card tips'), value: r.cardTips, note: t('손님이 카드로 낸 팁 — 이번 급여로 지급', 'Paid out on this check') },
           { label: t('현금 팁 (신고분)', 'Cash tips (reported)'), value: r.cashTips, note: t('이미 받은 돈이라 입금액에서는 빠지지만, 세금 계산에는 포함', 'Already in hand — taxed, but not paid again') },
         ]
+
+  const ptoHours = r.timeOffHours ?? 0
+  if (ptoHours > 0) {
+    earnings.splice(e.payType === 'salary' ? 1 : 2, 0, {
+      label: t('유급 휴가 (PTO)', 'Paid time off (PTO)'),
+      value: r.timeOffPay ?? 0,
+      always: true,
+      note: e.payType === 'salary'
+        ? t(`${ptoHours}h 사용 — 연봉에 포함되어 추가 지급 없음`, `${ptoHours}h used — included in salary`)
+        : e.payType === 'tipped'
+          ? t(`${ptoHours}h × $7.25 (휴가 시간은 팁 크레딧 없이 최저임금)`, `${ptoHours}h × $7.25 (no tip credit on time off)`)
+          : `${ptoHours}h × ${formatCurrency(e.rate)}`,
+    })
+  }
 
   const w4 = e.w4
   const deductions: Line[] = [
@@ -120,7 +136,7 @@ export default function PayStub({ employee: e, result: r, time, payDate, periodS
         <section>
           <h3>{t('지급', 'Earnings')}</h3>
           <ul className="stub-lines">
-            {earnings.filter((l) => l.value > 0).map((l) => (
+            {earnings.filter((l) => l.value > 0 || l.always).map((l) => (
               <li key={l.label}>
                 <div className="stub-line-main">
                   <span>{l.label}</span>

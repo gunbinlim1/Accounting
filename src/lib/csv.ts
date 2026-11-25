@@ -10,7 +10,7 @@ const cell = (v: string | number) => {
 export function payrollCsv(company: Company, payDate: string, view: RunView, role: (e: Employee) => string, mask: (l4: string) => string): string {
   const header = [
     'Company', 'EIN', 'Pay date', 'Employee ID', 'Last name', 'First name', 'MI', 'SSN', 'Role', 'Pay type', 'Rate',
-    'Regular hrs', 'OT hrs', 'Cash tips', 'Card tips', 'Tip make-up', 'Gross pay',
+    'Regular hrs', 'OT hrs', 'PTO hrs', 'PTO pay', 'Cash tips', 'Card tips', 'Tip make-up', 'Gross pay',
     'Federal W/H', 'Social Security', 'Medicare', 'Uncollected FICA', '401(k)', 'Net pay',
     'Employer SS', 'Employer Medicare', 'FUTA', 'TWC', 'OT premium (W-2)',
   ]
@@ -19,7 +19,7 @@ export function payrollCsv(company: Company, payDate: string, view: RunView, rol
     const h = view.time[e.id]
     return [
       company.dba, company.ein, payDate, e.id, e.lastName, e.firstName, e.middleInitial ?? '', mask(e.ssnLast4), role(e), e.payType, e.rate,
-      h?.regular ?? 0, h?.overtime ?? 0, r.cashTips, r.cardTips, r.tipMakeUp, r.grossPay,
+      h?.regular ?? 0, h?.overtime ?? 0, r.timeOffHours ?? 0, r.timeOffPay ?? 0, r.cashTips, r.cardTips, r.tipMakeUp, r.grossPay,
       r.federalWithholding, r.socialSecurity, r.medicare, r.uncollectedFica, r.pretaxDeductions, r.netPay,
       r.employerSocialSecurity, r.employerMedicare, r.futa, r.suta, r.qualifiedOvertimePremium,
     ]
